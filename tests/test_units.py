@@ -1,12 +1,12 @@
-from pharmakin.units import Q_, ureg, has_unit
+from pharmakin.units import Q_, ureg, has_units
 
 
 def test_has_unit():
     a = Q_(42.0, ureg.m)
     b = Q_(1337.0)
     
-    assert has_unit(a)
-    assert not has_unit(b)
+    assert has_units(a)
+    assert not has_units(b)
 
 
 def test_preferred_units_dont_overlap():

@@ -33,7 +33,7 @@ class Dim:
 ureg.default_preferred_units = Dim.to_unit_list()
 
 
-def has_unit(value):
+def has_units(value):
     return isinstance(value, pint.Quantity) and not value.dimensionless
 
 
