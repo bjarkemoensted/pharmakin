@@ -8,7 +8,10 @@ from pharmakin.units import ureg, Dim, Q_, coerce_float, coerce_unit
 PARAMETER_REGISTRY = Registry()
 
 
-class Parameter():
+class ParameterMeta(type):
+    pass
+
+class Parameter(metaclass=ParameterMeta):
     """Base class for representing pharmacokinetic parameters.
     Contains various class attributes and methods for validating parameters, converting units, etc.
     Specifically, it declares a unit for the parameter, and has functionality for validating values for the parameter.
@@ -82,7 +85,7 @@ class Parameter():
     @classmethod
     def validate(cls, value: float|pint.Quantity):
         val = cls.ensure_float(value=value)
-        if not cls.is_valid(value):
+        if not cls.is_valid(val):
             raise ValueError(f"Invalid value: {val} (validated {value}).")
         #
     #
