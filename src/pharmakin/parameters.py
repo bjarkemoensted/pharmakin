@@ -45,7 +45,8 @@ class Parameter(metaclass=ParameterMeta):
         
         # Register the parameter under its name
         if register:
-            PARAMETER_REGISTRY[cls.__name__] = cls
+            key = cls.__name__
+            PARAMETER_REGISTRY[key] = cls
     #
     
     @classmethod
