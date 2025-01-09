@@ -1,9 +1,9 @@
 import pytest
 
-from pharmakin.parameters import PARAMETER_REGISTRY
+from pharmakin.utils import parameters
 
 
 @pytest.fixture
 def all_parameters():
-    pars = [par for par in PARAMETER_REGISTRY.values()]
+    pars = [parameters.dose, parameters.auc, parameters.clearance]  # !!!
     return pars

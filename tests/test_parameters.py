@@ -1,5 +1,5 @@
-from pharmakin import parameters
-from pharmakin.units import ureg, Q_
+from pharmakin.utils import parameters
+from pharmakin.utils.units import ureg, Q_
 
 
 def test_parameter_cannot_be_defined_without_unit():

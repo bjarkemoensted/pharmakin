@@ -1,53 +1,72 @@
 import pint
-from typing import final
+from types import UnionType
+from typing import final, get_args
 
-from pharmakin.registry import Registry
-from pharmakin.units import ureg, Dim, Q_, coerce_float, coerce_unit
+from pharmakin.utils.formulas import Formula
+from pharmakin.utils.units import ureg, Dim, Q_, coerce_float, coerce_unit
 
 
-PARAMETER_REGISTRY = Registry()
+
+# Define required attributes and their types which must be set in all parameter classes
+REQUIRED_ATTRIBUTES = (
+    ("unit", None|pint.Unit),
+)
+
+
+def _type_is_correct(value, type_condition):
+    """Checks whether a value matches a certain type.
+    The type_condition can be either a class, None, or a UnionType, as defined
+    in a standard type hint e.g. float|int."""
+
+    if type_condition is None:
+        return value is None
+    
+    allowed = type_condition
+    # If using a type hint-like input, extract the allowed types from it
+    if isinstance(type_condition, UnionType):
+        allowed = get_args(type_condition)
+    
+    return isinstance(value, allowed)
 
 
 class ParameterMeta(type):
-    pass
+    _instances = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(ParameterMeta, cls).__call__(*args, **kwargs)
+            
+        return cls._instances[cls]
+    
+    def __new__(cls, name, bases, dct):
+        """Called when a subclass is defined. Checks that a unit is correctly declared and registers the class."""
+        # Enforce that unit is specified explicitly in the class body (i.e. not missing or inherited)
+        
+        for attr, type_hint in REQUIRED_ATTRIBUTES:
+            # Check that required attributes are explicitly declared in the class body
+            if attr not in dct:
+                raise RuntimeError(f"No unit set for parameter: {cls}.")
+            
+            # Check that attributes have required types
+            attr_val = dct[attr]
+            if not _type_is_correct(value=attr_val, type_condition=type_hint):
+                raise TypeError(f"Class attribute {attr} ({attr_val}) must be of type {type_hint}.")
+        
+        res = super().__new__(cls, name, bases, dct)
+        return res
+    #   
+
 
 class Parameter(metaclass=ParameterMeta):
     """Base class for representing pharmacokinetic parameters.
     Contains various class attributes and methods for validating parameters, converting units, etc.
     Specifically, it declares a unit for the parameter, and has functionality for validating values for the parameter.
-    Units must be specified explicitly when subclassing.
-    Subclasses are automatically registered to allow lookup from their class names.
-    Note that this classes cannot be instantiated - it solely exists to offer the afforementioned functionality, and
-    to employ some of python's inheritance machinery to simplify autoregistration of parameters.
-    
-    To override the autoregistration (if making a Parameter subclass which should not be registered), do
-    class MyClass(Parameter, register=False)"""
+    Units must be specified explicitly when subclassing."""
 
     unit = None
     lower = 0.0
     upper = float("inf")
     
-    @final
-    def __init__(self):
-        raise RuntimeError("Parameter classes are solely for namespacing and registering. Don't instantiate.")
-    
-    def __init_subclass__(cls, register=True):
-        """Called when a subclass is defined. Checks that a unit is correctly declared and registers the class."""
-        # Enforce that unit is specified explicitly in the class body (i.e. not missing or inherited)
-        attr = "unit"
-        if attr not in cls.__dict__:
-            raise RuntimeError(f"No unit set for parameter: {cls}.")
-        
-        # Enforce that unit must by a pint.Unit
-        unit = getattr(cls, attr)
-        if not isinstance(unit, pint.Unit):
-            raise TypeError
-        
-        # Register the parameter under its name
-        if register:
-            key = cls.__name__
-            PARAMETER_REGISTRY[key] = cls
-    #
+    # TODO NEED SOME KINDA METHOD TO TAKE KWARGS AND LOOKUP FORMULAS ELSEWHERE!!!
     
     @classmethod
     def _validate_units(cls, value: float|pint.Quantity|pint.Unit):
@@ -89,34 +108,11 @@ class Parameter(metaclass=ParameterMeta):
         if not cls.is_valid(val):
             raise ValueError(f"Invalid value: {val} (validated {value}).")
         #
-    #
-   
-
-class dose(Parameter):
-    """Dose parameter - the total dose (mass) administered"""
-    unit = Dim.MASS
-
-
-class clearance(Parameter):
-    """Clearence parameter. Indicates the volume of plasma cleared per time unit."""
-
-    lower = 0.0
-    upper = float("inf")
-    unit = Dim.VOLUME / Dim.TIME
     
     @classmethod
-    def from_auc_dose(cls, auc: float, dose: float):
-        res = dose/auc
-        return res
-    #
-
-
-class auc(Parameter):
-    """Represents the area under the curve (AUC) of a concentration/time curve.
-    The AUC is the integral over the plasma concentration over time after a dose is administered.
-    AUC is a measure of the total exposure (relative to plasma volume) of a dose."""
-    
-    unit = (Dim.MASS / Dim.VOLUME) * Dim.TIME
+    def formula(cls, func):
+        wrapped = Formula(func=func, result_class=cls)
+        return wrapped
 
 
 if __name__ == '__main__':

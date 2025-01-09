@@ -1,4 +1,4 @@
-from pharmakin.units import Q_, ureg, has_units
+from pharmakin.utils.units import Q_, ureg, has_units
 
 
 def test_has_unit():
