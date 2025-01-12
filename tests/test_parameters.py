@@ -1,4 +1,4 @@
-from pharmakin.utils import parameters
+from pharmakin import parameters
 from pharmakin.utils.units import ureg, Q_
 
 

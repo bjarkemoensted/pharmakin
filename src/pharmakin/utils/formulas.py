@@ -5,7 +5,7 @@ import sympy
 from typing import Callable, Iterable, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pharmakin.utils.parameter_base import ParameterMeta
+    from pharmakin.utils.parameter_base import ParameterMeta, Parameter
 from pharmakin.utils.units import has_units
 
 
@@ -70,7 +70,6 @@ class Formula:
         
         res = "\n".join(parts)
         return res
-
     
     def validate_input(self, kwds: dict):
         """Ensures that either all or none of the inputs have declared types"""
@@ -119,12 +118,15 @@ class Formula:
         
         return res
     
-    def __str__(self):
+    def __repr__(self):
         s = format_sympy_equation(self.eq)
-        res = f"Formula: {s}"
+        return s
+    #
+    
+    def __str__(self):
+        res = f"Formula: {repr(self)}"
         return res
-
-
+    #
 
 
 if __name__ == '__main__':

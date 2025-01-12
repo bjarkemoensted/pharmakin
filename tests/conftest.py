@@ -1,6 +1,6 @@
 import pytest
 
-from pharmakin.utils import parameters
+from pharmakin import parameters
 
 
 @pytest.fixture

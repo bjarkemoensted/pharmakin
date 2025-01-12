@@ -3,6 +3,7 @@ from types import UnionType
 from typing import final, get_args
 
 from pharmakin.utils.formulas import Formula
+from pharmakin.utils.registry import Formulary
 from pharmakin.utils.units import ureg, Dim, Q_, coerce_float, coerce_unit
 
 
@@ -30,13 +31,6 @@ def _type_is_correct(value, type_condition):
 
 
 class ParameterMeta(type):
-    _instances = {}
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(ParameterMeta, cls).__call__(*args, **kwargs)
-            
-        return cls._instances[cls]
-    
     def __new__(cls, name, bases, dct):
         """Called when a subclass is defined. Checks that a unit is correctly declared and registers the class."""
         # Enforce that unit is specified explicitly in the class body (i.e. not missing or inherited)
@@ -53,7 +47,12 @@ class ParameterMeta(type):
         
         res = super().__new__(cls, name, bases, dct)
         return res
-    #   
+    
+    def __repr__(self):
+        return f"{self.__name__} <parameter>"
+    
+    def __str__(self):
+        return repr(self)
 
 
 class Parameter(metaclass=ParameterMeta):
@@ -65,8 +64,6 @@ class Parameter(metaclass=ParameterMeta):
     unit = None
     lower = 0.0
     upper = float("inf")
-    
-    # TODO NEED SOME KINDA METHOD TO TAKE KWARGS AND LOOKUP FORMULAS ELSEWHERE!!!
     
     @classmethod
     def _validate_units(cls, value: float|pint.Quantity|pint.Unit):
@@ -111,8 +108,12 @@ class Parameter(metaclass=ParameterMeta):
     
     @classmethod
     def formula(cls, func):
+        """Implements a decorator for the class which adds unit handling and validation functionality
+        to a wrapped function."""
+        
         wrapped = Formula(func=func, result_class=cls)
         return wrapped
+    #
 
 
 if __name__ == '__main__':
