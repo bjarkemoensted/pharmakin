@@ -71,7 +71,8 @@ class Formula:
         res = "\n".join(parts)
         return res
     
-    def validate_input(self, kwds: dict):
+    @staticmethod
+    def validate_input(kwds: dict):
         """Ensures that either all or none of the inputs have declared types"""
         n_units = sum(has_units(val) for val in kwds.values())
         consistent = n_units in (0, len(kwds))

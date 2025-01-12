@@ -3,7 +3,6 @@ from types import UnionType
 from typing import final, get_args
 
 from pharmakin.utils.formulas import Formula
-from pharmakin.utils.registry import Formulary
 from pharmakin.utils.units import ureg, Dim, Q_, coerce_float, coerce_unit
 
 
