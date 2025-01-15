@@ -42,9 +42,9 @@ class Formula:
         self.result_class = result_class
         self.unit = self.result_class.unit
         
-        rhs = _convert_to_sympy_expression(func=self.func)
-        lhs = sympy.Symbol(self.result_class.__name__)
-        self.eq = sympy.Equality(lhs, rhs)
+        self.rhs = _convert_to_sympy_expression(func=self.func)
+        self.lhs = sympy.Symbol(self.result_class.__name__)
+        self.eq = sympy.Equality(self.lhs, self.rhs)
         
         wraps(func)(self)
         
@@ -68,7 +68,7 @@ class Formula:
             self.func.__doc__,
         ]
         
-        res = "\n".join(parts)
+        res = "\n".join([part for part in parts if part is not None])
         return res
     
     @staticmethod
@@ -92,9 +92,10 @@ class Formula:
         kw_only = bound.arguments
         return kw_only
     
-    def compute(self, kwds: dict, with_units: bool|None):
+    def compute(self, kwds: dict, with_units: bool|None, evaluate_numerically=False):
         """If with_units is True or False, the result will have units/be unitless.
-        If with_units is None (default), the result will have units only if all inputs do."""
+        If with_units is None (default), the result will have units only if all inputs do.
+        evaluate_numerically indicates whether sympy expressions should be evaluated numerically."""
         
         # Compute and run sanity checks
         self.validate_input(kwds=kwds)
@@ -106,7 +107,10 @@ class Formula:
             res = self.result_class.ensure_units(value=res)
         elif with_units is False:
             res = self.result_class.ensure_float(value=res)
-            
+    
+        if evaluate_numerically and isinstance(res, sympy.core.expr.Expr):
+            res = res.evalf()
+
         return res
     
     def __call__(self, *args, with_units: bool=None, **kwargs):
@@ -115,7 +119,7 @@ class Formula:
         If with_units is None (default), the result will have units only if all inputs do."""
 
         kwds = self._to_keywords(*args, **kwargs)        
-        res = self.compute(kwds=kwds, with_units=with_units)
+        res = self.compute(kwds=kwds, with_units=with_units, evaluate_numerically=True)
         
         return res
     

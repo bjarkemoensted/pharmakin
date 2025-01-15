@@ -14,6 +14,12 @@ class dose(Parameter):
     unit = Dim.MASS
 
 
+class concentration(Parameter):
+    """Concentration of drug in plasma"""
+    
+    unit = Dim.MASS / Dim.VOLUME
+
+
 class clearance(Parameter):
     """Clearence parameter. Indicates the volume of plasma cleared per time unit."""
 
@@ -29,6 +35,21 @@ class auc(Parameter):
     
     unit = (Dim.MASS / Dim.VOLUME) * Dim.TIME
     
+
+class volume_of_distribution(Parameter):
+    """The 'apparent volume of distribution', given by the total amount of drug in the body divided
+    by the plasma concentration.
+    Hence, this is a theoretical 'effective' volume of plasma. If a person has 5L of blood,
+    but only 50% of a drug is dissolved in the blood, the v_d is 10L."""
+    
+    unit = Dim.VOLUME
+
+
+class half_life(Parameter):
+    """The time taken in first-order processes for an amount of drug to reduce by 50%."""
+
+    unit = Dim.TIME
+
 
 if __name__ == '__main__':
     pass

@@ -10,6 +10,7 @@ python = "^3.12"
 pint = "^0.24.4"
 pytest = "^8.3.4"
 sympy = "^1.13.3"
+numpy = "^2.2.1"
 
 
 [build-system]

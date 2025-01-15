@@ -69,3 +69,4 @@ class BulkImporter:
         
         res = tuple(hits)
         return res
+    #
