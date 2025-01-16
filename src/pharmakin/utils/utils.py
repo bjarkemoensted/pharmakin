@@ -1,5 +1,36 @@
+import contextlib
+from importlib import import_module
+import os
+from pathlib import Path
 from types import ModuleType
 from typing import Iterable
+
+
+def _iterate_modules(module):
+    """Takes a module and recursively iterates through submodules"""
+    
+    # Take the directory of the provided module as the root
+    root_dir = Path(module.__file__).parent
+    # Get the fully qualified name for the input module
+    base = module.__name__.split(".")
+    
+    for path in root_dir.rglob("*.py"):
+        relpath = path.relative_to(root_dir)
+        filename = relpath.stem
+        if filename == "__init__":
+            continue
+        
+        # Construct the module path (e.g. "module.submodule.subsubmodule")
+        parts = base + list(relpath.parent.parts) + [filename]
+        modpath = ".".join(parts)
+        
+        # Do the import (silence any print statements)
+        with open(os.devnull, 'w') as devnull:
+            with contextlib.redirect_stdout(devnull):
+                submodule = import_module(modpath)
+            #
+        yield submodule
+    #
 
 
 class BulkImporter:
@@ -9,11 +40,13 @@ class BulkImporter:
             from_: Iterable|ModuleType,
             instance_of: Iterable|type=None,
             child_of: Iterable|type=None,
+            recurse_submodules=False
             ):
         """from_ is a module, or an iterable of modules.
         instance_of denotes one or more classes of which instances will be imported.
         child_of denotes one or more classes of which child classes will be imported.
-        The class itself is not included. For either argument, None can be used to allow all."""
+        The class itself is not included. For either argument, None can be used to allow all.
+        If recurse_submodules is True, all submodules are scanned as well."""
         
         # Cast all arguments to tuples for consistency
         if isinstance(from_, ModuleType):
@@ -23,9 +56,25 @@ class BulkImporter:
         if isinstance(child_of, type):
             child_of = (child_of,)
         
-        self.from_ = [elem for elem in from_]
+        self._modules = tuple(elem for elem in from_)
         self.instance_of = instance_of
         self.child_of = child_of
+        self.recurse_submodules = recurse_submodules
+    
+    @property
+    def from_(self):
+        mods = set()
+        
+        for mod in self._modules:
+            mods.add(mod)
+            if self.recurse_submodules:
+                for submodule in _iterate_modules(mod):
+                    mods.add(submodule)
+                #
+            #
+        
+        res = sorted(mods, key=str)
+        return res
     
     def _instance_match(self, attribute):
         """Checks if the attribute is an instance of any specified classes"""
@@ -70,3 +119,7 @@ class BulkImporter:
         res = tuple(hits)
         return res
     #
+
+
+if __name__ == '__main__':
+    pass

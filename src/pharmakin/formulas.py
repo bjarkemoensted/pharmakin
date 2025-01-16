@@ -3,23 +3,22 @@ _this_module = sys.modules[__name__]
 
 from pharmakin import parameters
 from pharmakin.utils.formulas import Formula
+from pharmakin.utils.registry import Formulary
 from pharmakin.utils.utils import BulkImporter
 
 
-get_all_formulas = BulkImporter(from_=_this_module, instance_of=Formula)
+from pharmakin import kinetics
+get_all_formulas = BulkImporter(from_=kinetics, instance_of=Formula, recurse_submodules=True)
 
 
-@parameters.clearance.formula
-def clearence_from_dose_auc(dose, auc):
-    """Determines clearence from dose and AUC"""
-    res = dose / auc
-    return res
+ALL_PARAMETERS = parameters.get_all_parameters()
+ALL_FORMULAS = get_all_formulas()
 
 
-@parameters.volume_of_distribution.formula
-def v_d(dose, concentration):
-    res = dose / concentration
-    return res
+formulary = Formulary(
+    parameters=ALL_PARAMETERS,
+    formulas=ALL_FORMULAS
+)
 
 
 if __name__ == '__main__':
