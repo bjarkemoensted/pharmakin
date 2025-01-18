@@ -2,8 +2,8 @@ import sys
 _this_module = sys.modules[__name__]
 
 from pharmakin import parameters
-from pharmakin.utils.formulas import Formula
-from pharmakin.utils.registry import Formulary
+from pharmakin.utils.formula import Formula
+from pharmakin.utils.formula import Formulary
 from pharmakin.utils.utils import BulkImporter
 
 

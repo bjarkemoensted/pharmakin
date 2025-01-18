@@ -23,8 +23,6 @@ class concentration(Parameter):
 class clearance(Parameter):
     """Clearence parameter. Indicates the volume of plasma cleared per time unit."""
 
-    lower = 0.0
-    upper = float("inf")
     unit = Dim.VOLUME / Dim.TIME
 
 
@@ -52,4 +50,5 @@ class half_life(Parameter):
 
 
 if __name__ == '__main__':
-    pass
+    vd = volume_of_distribution.example_values(size=None, with_units=True)
+    print(vd)

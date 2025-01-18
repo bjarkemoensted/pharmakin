@@ -25,11 +25,6 @@ def test_parameter_cannot_be_defined_without_unit():
 
 def test_parameter_unit_conversion(all_parameters):
     for par in all_parameters:
-        val = Q_(42.0, par.unit)
-        try:
-            par._validate_units(par.unit)
-        except Exception:
-            raise AssertionError(f"Invalid value ({val}) for parameter: {par}.")
-    assert True
-
-
+        #val = Q_(42.0, par.unit)
+        assert par._unit_is_valid(par.unit)
+    #

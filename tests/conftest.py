@@ -2,7 +2,7 @@ import pytest
 
 from pharmakin import formulas
 from pharmakin import parameters
-from pharmakin.utils.registry import Formulary
+from pharmakin.utils.formula import Formulary
 
 
 @pytest.fixture
@@ -17,9 +17,23 @@ def all_formulas():
     return res
 
 
-# TODO MAKE SOME TESTS VERIFYING THAT WE HAVE DEFINITIONS FOR ALL PARAMS ETC!!!
-def one_formulary_to_rule_them_all(all_parameters, all_formulas):
-    Formulary(
+@pytest.fixture
+def master_formulary(all_parameters, all_formulas):
+    res = Formulary(
         parameters=all_parameters,
         formulas=all_formulas
     )
+    
+    return res
+
+
+@pytest.fixture
+def parameter_example_values(all_parameters):
+    """Produces a list of dicts, mapping parameter names to examples of their values"""
+    N = 100
+    res = []
+    for _ in range(N):
+        d = {par.__name__:  par.example_values(with_units=False) for par in all_parameters}
+        res.append(d)
+
+    return res

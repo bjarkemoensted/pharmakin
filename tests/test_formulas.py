@@ -1,4 +1,4 @@
-from pharmakin.utils.formulas import Formula
+from pharmakin.utils.formula import Formula
 from pharmakin.utils.utils import BulkImporter
 
 

@@ -2,9 +2,9 @@ import pint
 from types import UnionType
 from typing import final, get_args
 
-from pharmakin.utils.formulas import Formula
+from pharmakin.utils.formula import Formula
 from pharmakin.utils.units import ureg, Dim, Q_, coerce_float, coerce_unit
-
+from pharmakin.utils.stats import Simulator
 
 
 # Define required attributes and their types which must be set in all parameter classes
@@ -65,10 +65,14 @@ class Parameter(metaclass=ParameterMeta):
     upper = float("inf")
     
     @classmethod
-    def _validate_units(cls, value: float|pint.Quantity|pint.Unit):
-        """Raises an error if value has units incompatible with the parameter"""
-        if isinstance(value, pint.Quantity) and not value.units.is_compatible_with(cls.unit):
-            raise RuntimeError(f"Input unit ({value.units}) not compatible with {cls.unit}.")
+    def _unit_is_valid(cls, value: float|pint.Quantity|pint.Unit) -> bool:
+        """Checks if value has units compatible with the parameter"""
+        
+        if isinstance(value, float):
+            return True
+        
+        unit = value if isinstance(value, pint.Unit) else value.units
+        return unit.is_compatible_with(cls.unit)
     
     @classmethod
     def ensure_units(cls, value: float|pint.Quantity, force_standard_units=False) -> pint.Quantity:
@@ -80,6 +84,8 @@ class Parameter(metaclass=ParameterMeta):
 
         # If input has units and we're not force-converting, just check for compatibility
         if isinstance(value, pint.Quantity) and not force_standard_units:
+            if not cls._unit_is_valid(value):
+                raise RuntimeError(f"Input ({value}) has units incompatible with {cls.unit}.")
             cls._validate_units(value=value)
             return value
         
@@ -93,16 +99,19 @@ class Parameter(metaclass=ParameterMeta):
         return res
 
     @classmethod
-    def is_valid(cls, value: float):
+    def is_valid(cls, value: float|pint.Quantity):
+        if not cls._unit_is_valid(value):
+            return False
+    
+        value = cls.ensure_float(value)
         res = cls.lower <= value <= cls.upper
         return res
 
     @final
     @classmethod
     def validate(cls, value: float|pint.Quantity):
-        val = cls.ensure_float(value=value)
-        if not cls.is_valid(val):
-            raise ValueError(f"Invalid value: {val} (validated {value}).")
+        if not cls.is_valid(value):
+            raise ValueError(f"Invalid value: {value}.")
         #
     
     @classmethod
@@ -113,6 +122,32 @@ class Parameter(metaclass=ParameterMeta):
         wrapped = Formula(func=func, result_class=cls)
         return wrapped
     #
+    
+    @classmethod
+    def example_values(cls, size=None, with_units=False, seed: int=None):
+        """Generates one or more examples of values the parameter could take.
+        size is the number of values desired (None produces a single value).
+        If with_units, the values will include values.
+        seed is an optional random seed."""
+
+        # Some parameters have no upper bound - just use some fixed value for those
+        upper = cls.upper
+        if upper == float("inf"):
+            upper = 10
+        
+        # Simulate value(s)
+        f = Simulator(distribution="uniform", seed=seed, low=cls.lower, high=upper)
+        res = f(size=size)
+        
+        # Add units if required
+        if with_units:
+            if isinstance(res, float):
+                res = cls.ensure_units(res)
+            else:
+                res = [cls.ensure_units(val) for val in res]
+            #
+
+        return res            
 
 
 if __name__ == '__main__':
