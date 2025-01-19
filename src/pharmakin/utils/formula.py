@@ -56,7 +56,7 @@ class Formula:
     def _make_callable(self) -> Callable:
         """Returns a the input function, but with any sympy operations evaluated numerically"""
         expr = self.rhs
-        if expr.atoms(sympy.Function):
+        if self.is_symbolic():
             expr = expr.evalf()
         
         input_symols = [sympy.Symbol(x) for x in self.inputs]
