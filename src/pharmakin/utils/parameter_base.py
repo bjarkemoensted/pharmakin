@@ -86,7 +86,6 @@ class Parameter(metaclass=ParameterMeta):
         if isinstance(value, pint.Quantity) and not force_standard_units:
             if not cls._unit_is_valid(value):
                 raise RuntimeError(f"Input ({value}) has units incompatible with {cls.unit}.")
-            cls._validate_units(value=value)
             return value
         
         # Otherwise coerce to default units
