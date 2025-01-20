@@ -70,7 +70,7 @@ class Parameter(metaclass=ParameterMeta):
         
         if isinstance(value, float):
             return True
-        
+    
         unit = value if isinstance(value, pint.Unit) else value.units
         return unit.is_compatible_with(cls.unit)
     

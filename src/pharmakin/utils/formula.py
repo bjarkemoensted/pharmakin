@@ -19,6 +19,16 @@ def _convert_to_sympy_expression(func: Callable):
     return expr
 
 
+def _make_callable_from_sympy_expression(expr: sympy.core.expr.Expr) -> Callable:
+        """Converts a sympy Expression into a function, with any sympy operations evaluated numerically"""
+        
+        expr = expr.evalf()
+        symbols = sorted(expr.atoms(sympy.Symbol), key=str)
+        f = sympy.lambdify(symbols, expr)
+
+        return f
+
+
 def format_sympy_equation(eq: sympy.core.relational.Equality) -> str:
     """Formats a sympy equation into a string."""
 
@@ -47,21 +57,11 @@ class Formula:
         self.lhs = sympy.Symbol(self.result_class.__name__)
         self.eq = sympy.Equality(self.lhs, self.rhs)
         
-        self._call = self._make_callable()
+        self._call = _make_callable_from_sympy_expression(self.rhs)
         
         wraps(func)(self)
         
         self.__doc__ = self._make_new_docstring()
-    
-    def _make_callable(self) -> Callable:
-        """Returns a the input function, but with any sympy operations evaluated numerically"""
-        expr = self.rhs
-        if self.is_symbolic():
-            expr = expr.evalf()
-        
-        input_symols = [sympy.Symbol(x) for x in self.inputs]
-        f = sympy.lambdify(input_symols, expr)
-        return f
     
     @property
     def inputs(self) -> tuple:
@@ -218,19 +218,75 @@ class Formulary:
         for formula in formulas:
             self.formulae.append(formula)
             self.equations.append(formula.eq)
-
+            
             formula_for = self._parkey(formula.result_class)
-            vars = list(formula.inputs) + [formula_for]
-            self.ensure_registered(vars)
+            vars_ = list(formula.inputs) + [formula_for]
+            self.ensure_registered(vars_)
 
             parkey = self._parkey(formula.result_class)
             self.formulas_for_parameter[parkey].append(formula)
 
-            for var in vars:
+            for var in vars_:
                 self.formulas_containing_parameter[var].append(formula)
             #
         #
 
+    def express_parameter(
+            self,
+            parameter: ParameterMeta,
+            given: Iterable[str],
+            allow_subsets=False
+        ) -> list[sympy.core.expr.Expr]:
+        """Attempts to isolate an expression for the specified parameter, given a number of other variables.
+        parameter is the parameter to be isolated.
+        given is an iterable of strings representing the inputs in terms of which to express the parameter
+        allow_subsets (default: False) indicates whether to return expressions for the parameter in terms of subsets
+        of the given inputs. If False, only expressions with the exact variables provided are used."""
+        
+        # Generate sympy Symbols for the target and variables
+        target_symbol = self.symbols[parameter.__name__]
+        given_symbols = [self.symbols[x] for x in given]
+        if target_symbol in given_symbols:
+            raise ValueError(f"Can't attempt to express {target_symbol} in terms of itself.")
+        
+        allowed_symbols = {target_symbol, *given_symbols}
+        
+        def valid_vars(expr) -> bool:
+            """Determines whether an expression has valid variables for expressing target.
+            Valid means it must contain the target, and the given variables
+            (or a subset if allow_subsets)"""
+            
+            syms = expr.atoms(sympy.Symbol)
+            if target_symbol not in syms:
+                return False
+            
+            if allow_subsets:
+                return syms.issubset(allowed_symbols)
+            else:
+                return syms == allowed_symbols
+        
+        res = []
+        
+        # Attempt to solve each individual equation for target
+        for eq in self.equations:
+            if not valid_vars(eq):
+                continue
+            
+            solutions = sympy.solve(eq, target_symbol)
+            assert len(solutions) == 1
+            solution = solutions[0]
+            res.append(solution)
+        
+        # If unsuccesful, attempt the entire system of equations
+        if not res:
+            solutions = list(sympy.solve(self.equations, target_symbol))
+            for solution in solutions:
+                if not valid_vars(solution):
+                    continue
+                res.append(solution)
+            #
+        return res
+        
     def determine_parameter(self, parameter: ParameterMeta, **kwargs):
         """Attempts to determine a parameter value from other parameters, specified as keyword arguments.
         The first argument is the target parameter class, which should be computed.
@@ -240,33 +296,21 @@ class Formulary:
 
         Formula.validate_input(kwargs)
 
-        # Check if inputs have units
-        res_units = all(has_units(val) for val in kwargs.values())
-
-        # Determine target sympy symbol
-        target_name = self._parkey(parameter)
-        target = self.symbols[target_name]
-
-        # Use keyword args to make a dict of other symbols and their values
-        vals = dict()
-        for otherpar, val in kwargs.items():
-            k = self.symbols[otherpar]
-            class_ = self.parameters[otherpar]
-            # Drop units to avoid sympy issues
-            val = class_.ensure_float(val)
-            vals[k] = val
-
-        # Insert into the formulary's equations and solve
-        substituted = [eq.subs(vals) for eq in self.equations]
-        solved = sympy.solve(substituted, target)
-        res = solved[target]
-
-        # If input had units, add to result
-        if res_units:
-            res = parameter.ensure_units(res)
+        # Attempt to express target param in terms of inputs by solving the formulary's equations analytically
+        vars_ = tuple(sorted(kwargs.keys()))
+        exprs = self.express_parameter(parameter=parameter, given=vars_, allow_subsets=True)
+        if len(exprs) != 1:
+            raise RuntimeError(f"Could not express {parameter.__name__} uniquely in terms of {', '.join(vars_)}!")
+        result_expr = exprs[0]
+        
+        # Turn the expression for the parameter into callable and compute result from the inputs
+        # (could also just substitute into the expression with expr.subs, but that fails when using units)
+        f = _make_callable_from_sympy_expression(result_expr)
+        expr_syms = result_expr.atoms(sympy.Symbol)
+        kwds = {k: v for k, v in kwargs.items() if sympy.Symbol(k) in expr_syms}
+        res = f(**kwds)
 
         parameter.validate(res)
-
         return res
 
     def __repr__(self):
