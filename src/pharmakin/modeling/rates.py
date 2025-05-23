@@ -22,6 +22,12 @@ import sympy
 from sympy import Function, dsolve, Derivative, Eq, symbols
 
 
+class Decay:
+    def __init__(self, rate):
+        pass
+
+
+
 # Define the function y(x)
 A = Function('A')
 
@@ -41,6 +47,8 @@ print(solution)
 def first_order_rate(t_half):
     res = np.log(2)/t_half
     return res
+
+
 
 
 if __name__ == '__main__':
