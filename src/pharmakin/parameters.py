@@ -1,7 +1,7 @@
 import sys
 _this_module = sys.modules[__name__]
 
-from pharmakin.utils.parameter_base import Parameter, ParameterMeta
+from pharmakin.utils.parameter_base import Parameter
 from pharmakin.utils.units import Dim
 from pharmakin.utils.utils import BulkImporter
 
