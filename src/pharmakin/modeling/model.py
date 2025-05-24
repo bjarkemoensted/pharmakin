@@ -4,6 +4,14 @@ import numpy as np
 import sympy
 
 
+# A	Instantaneous Input	Drug appears immediately in systemic circulation.
+# B	Zero-Order Absorption	Drug enters bloodstream at a constant rate over time.
+# C	First-Order Absorption	Rate of absorption is proportional to drug remaining at site.
+# D	Delayed Absorption	Time lag before absorption begins. Then behaves like first-order or zero-order.
+# E	Controlled Release / Sustained	Complex release: could be pseudo-zero-order or multiphasic.
+
+
+
 # Symbol for time variable
 _t = sympy.Symbol("t")
 
