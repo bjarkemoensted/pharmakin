@@ -56,6 +56,7 @@ class Reaction:
         
         logger.debug(f"Created reaction: {rates}.")
         self.rates = rates
+        #TODO implement stoichiometry stuff (taking differences in molecular mass into account)
 
 
 def _summarize_reactions(reactions: Iterable[Reaction]) -> dict:
