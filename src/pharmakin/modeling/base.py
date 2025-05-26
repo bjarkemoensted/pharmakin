@@ -1,136 +1,162 @@
+from __future__ import annotations
+from copy import deepcopy
 from functools import partial
 import logging
 logger = logging.getLogger(__name__)
+import networkx as nx
 import sympy
 from sympy import Function, dsolve, Derivative, Eq
 from sympy.core.function import AppliedUndef
+from typing import Any, Iterable, TypeAlias
 
+from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
 
 
-class Meh:
-    target_symbol = "A"
-    time_symbol = "t"
-    slope_rel_threshold = 0.01
-    
-    def __init__(self, k: float):
-        self.k = k
-        
-        self.t = sympy.Symbol(self.time_symbol)
-        
-        self.y = Function(self.target_symbol)
-        self.yp = -self.k*self.y(self.t)
-    
-    @property
-    def eq(self):
-        return sympy.Eq(sympy.Derivative(self.y(self.t), self.t), self.yp)
-    
-    def solve(self, a_initial):
-        solution = dsolve(self.eq, self.y(self.t), ics={self.y(0): a_initial})
-        expr = solution.rhs
-        f = sympy.lambdify((self.t), expr)
-        return f
-    
-    def numerical(self, a_initial: float, t: float, n_steps: int):
-        res = []
-        dt = t/n_steps
-        running = a_initial
-        
-        issued_warning = False
-        
-        grad = sympy.lambdify((self.y(self.t)), self.yp)
-        for _ in range(n_steps):
-            res.append(running)
-            slope = grad(running)
-            delta = slope*dt
-            if abs(delta) > running*self.slope_rel_threshold and not issued_warning:
-                logger.warning(f"{self} quantity changed more than allowed fraction ({self.slope_rel_threshold})!")
-                issued_warning = True
-            running += delta
-        
-        return res
-    #
-
-
-hmm = Meh(k=.01)
-#print(hmm.yp.subs())
-
-
-class Rate:
-    """Represents metabolism or elimination - the temporal evolution of some quantity"""
-    
-    def __init__(self, expr: sympy.Expr):
-        """expr is a sympy expression for the rate, i.e. dA/dt, where A is the quantity of interest"""
-        
-        self.expr = expr
-    
-    def get_vars(self) -> set:
-        """Returns a set of function variables (like A_SUF(t)).
-        Using a custom method for this because expr.free_symbols() would return t as the free symbol,
-        rather than A(t)."""
-        
-        vars_ = self.expr.atoms(AppliedUndef)
-        return vars_
-    
-    def substitute_quantities(self, quantities: dict):
-        """Takes a dict mapping quantities (e.g. A_SUF(t)) to their current values.
-        Returns the decay expression after substituting the values."""
-        
-        in_expression = self.get_vars()
-        replace = {k: v for k, v in quantities.items() if k in in_expression}
-        print(in_expression, replace)
-        res = self.expr.subs(replace)
-        return res
-    
-    def first_order_step(self, current_values: dict, dt: float) -> float:
-        slope = self.substitute_quantities(current_values)
-        delta = slope*dt
-        return delta
-
-
-class Quantity:
+class Compound:
     def __init__(self, label: str, A_0: float=0.0):
+        """Make a new quantity for modeling.
+        label (str) - A label/name to describe the compound.
+            This is just for readibality, so you can use the full medicine name (e.g. lisdexamphetamine),
+            Abreviation (LDX), brand name (Elvanse/Vyvanse) or whatever.
+        A_0 (float, default 0.0): The initial quantity of the drug."""
+        
         self.label = label
         self.A_0 = A_0
-        self.decays: list[tuple[str|None, sympy.Expr]] = []
+        # List of decays, indicating the rates and resulting compounds to which the drug metabolizes
         
         A_suffix_str = f"{str(symbols.A)}_{self.label}"
         self.A = sympy.Function(A_suffix_str)
+        self.A_t = self.A(symbols.t)
+        self.Ap = sympy.Derivative(self.A(symbols.t), symbols.t)
 
-    def replace_with_suffixed_var(self, expr: sympy.Expr) -> sympy.Expr:
-        """Takes a sympy expression with a generic symbol for drug amount (A).
-        Replaces A with the variable representing this quantity.
-        Note that A must be expressed as a function of t (symbols.A(symbols.t) can be used,
-        for instance)."""
+
+class Model:
+    def __init__(self):
+        self.G = nx.DiGraph()
+        self.compounds: dict[str, Compound] = dict()
+        self.reactions: list[Reaction] = []
+
+    def add_compound(self, label: str, initial_amount = 0.0):
+        compound = Compound(label=label, A_0=initial_amount)
+        self.G.add_node(label)
+        self.compounds[label] = compound
+        return self
+    
+    def _ensure_added(self, *labels: str|None):
+        for label in labels:
+            if label is not None and label not in self.compounds:
+                self.add_compound(label)
+
+
+class Reaction:
+    def __init__(self, *rates: tuple[Any, sympy.Expr]):
+        for gradient, expr in rates:
+            pass  # TODO maybe do some type checking here?
         
-        old = symbols.A(symbols.t)
-        new = self.A(symbols.t)
-        res = expr.subs(old, new)
+        logger.debug(f"Created reaction: {rates}.")
+        self.rates = rates
+
+
+def _summarize_reactions(reactions: Iterable[Reaction]) -> dict:
+    res = dict()
+    for reaction in reactions:
+        for gradient, expr in reaction.rates:
+            try:
+                res[gradient] += expr
+            except KeyError:
+                res[gradient] = expr
+            #
+        #
+    
+    return res
+
+
+param: TypeAlias = float|int|sympy.Basic
+
+
+class FirstOrderReaction(Reaction):
+    def __init__(self, k: param, reactant: Compound, metabolite: Compound|None=None):
+
+        self.k = k
+        self.t_half = t_half_from_k(k)
+        self.rate = self.k*reactant.A_t
+        
+        rates = [(Derivative(reactant.A_t, symbols.t), -self.rate)]
+        if metabolite:
+            rates.append((Derivative(metabolite.A_t, symbols.t), +self.rate))
+        super().__init__(*rates)
+    
+
+class FirstOrderModel(Model):
+    def add_reaction(self, reactant_label: str, metabolite_label: str|None=None, k: param|None=None, t_half: param=None):
+        if k is None:
+            k = k_el(t_half)
+            
+        self._ensure_added(reactant_label, metabolite_label)
+        
+        reactant = self.compounds[reactant_label]
+        metabolite = self.compounds.get(metabolite_label)
+        
+        reaction = FirstOrderReaction(k=k, reactant=reactant, metabolite=metabolite)
+        
+        self.reactions.append(reaction)
+        if metabolite:
+            self.G.add_edge(reactant_label, metabolite_label, reaction=reaction)
+        
+        return self
+    
+    def get_initial_conditions(self):
+        res = dict()
+        for compound in self.compounds.values():
+            res[compound.A(0)] = compound.A_0
+        
+        return res
+    
+    def get_equations(self):
+        d = _summarize_reactions(self.reactions)
+        res = []
+        for gradient, expr in d.items():
+            eq = sympy.Eq(gradient, expr)
+            res.append(eq)
+        
         return res
 
-    def add_decay(self, decay: sympy.Expr, metabolite: str|None=None):
-        rate = self.replace_with_suffixed_var(decay)
-        conversion = (metabolite, rate)
-        self.decays.append(conversion)
+    def solve_analytic(self):
+        eqs = self.get_equations()
+        ics = self.get_initial_conditions()
+        sols = dsolve(
+            eqs,
+            ics=ics
+        )
+        return sols
+
+
 
 
 if __name__ == '__main__':
-    q = Quantity("LDX")
+    logging.basicConfig(level=logging.DEBUG)
+    hmm = t_half_from_k(2.0)
+    print(sympy.log(2)/1.0, type(t_half_from_k(2.0)), isinstance(hmm, sympy.Basic))
     
-    t = sympy.Symbol("t")
-    A = sympy.Function("A")
-
-    decay_expr_base = -0.01*A(t)
-    decay_expr = q.replace_with_suffixed_var(decay_expr_base)
+    model = FirstOrderModel()
+    model.add_compound("LDX", initial_amount=100.0)
     
-    #total_out = sum(tuple(zip(*q.decays))[1])
+    model.add_compound("AMP")
+    model.add_reaction(reactant_label="LDX", metabolite_label="AMP", t_half=1.0)
+    model.add_reaction(reactant_label="AMP", t_half=10.5)
     
-    rate = Rate(decay_expr)
-    print(rate)
+    eqs = model.get_equations()
+    print(eqs)
+    print(model.get_initial_conditions())
+    sols = dsolve(
+        eqs,
+        #ics=model.get_initial_conditions()
+    )
     
-    d = {q.A(t): 10}
-    print(d)
+    print("\n*Solutions:*")
+    print(sols)
+    print()
     
-    grad = rate.substitute_quantities(d)
-    print(grad, type(grad), float(grad))
-    print(rate.first_order_step(d, dt=0.12))
+    for r in model.reactions:
+        print(float(r.k))

@@ -49,6 +49,12 @@ class half_life(Parameter):
     unit = Dim.TIME
 
 
+class elimination_rate_constant(Parameter):
+    """The contant elimination rate (k) for first order kinetics"""
+    
+    unit = Dim.TIME**-1
+
+
 if __name__ == '__main__':
     vd = volume_of_distribution.example_values(size=None, with_units=True)
     print(vd)
