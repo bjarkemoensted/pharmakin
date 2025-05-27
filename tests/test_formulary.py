@@ -11,7 +11,8 @@ def test_all_parameters_defined(master_formulary, all_parameters):
         if len(master_formulary.get_formulas_containing_parameter(par)) == 0:
             missing.append(par)
         #
-    assert not missing
+    if missing:
+        raise AssertionError(f"Missing params: {', '.join(sorted(map(str, missing)))}")
 
 
 def test_computations(master_formulary, parameter_names_with_example_vals):

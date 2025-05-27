@@ -9,6 +9,7 @@ def t_half(volume_of_distribution, clearance):
     return res
 
 
+@parameters.elimination_rate_constant.formula
 def k_el(half_life):
     res = sympy.log(2)/half_life
     return res
