@@ -73,8 +73,8 @@ def prodrug_example(
 class TestFirstOrderSolve(TestCase):
     
     def setUp(self):
-        t_half_amp = 1.0
-        t_half_ldx = 10.5
+        t_half_amp = 10.5
+        t_half_ldx = 1.0
         # Example - metabolization of dextroamphetamine
         self.amp_model, self.amp_solutions = single_drug_example(label="AMP", t_half=t_half_amp, initial_amount=20.0)
         
@@ -106,4 +106,30 @@ class TestFirstOrderSolve(TestCase):
         for model_sol, correct in zip(model_solutions, self.ldx_solutions):
             self._check_solutions_equiv(model_sol.rhs, correct)
         #
+    
+    def test_numeric_single(self):
+        # TODO make less messy
+        correct = self.amp_solutions[0]
+        n = 1_000_000
+        T = 100.0
+        t_vals = np.linspace(0.0, T, num=n)
+        f = sympy.lambdify(symbols.t, correct)
+        delta_t = t_vals[1] - t_vals[0]
+        
+        
+        num = self.amp_model.solve_numerical(delta_t=delta_t, T=T)
+        assert len(num) == 1
+        vals_num = np.array([float(v) for v in list(num.values())[0]])
+        print(vals_num[:3])
+        vals_ana = np.array(f(t_vals))
+        
+        np.testing.assert_almost_equal(vals_num[:len(vals_ana)], vals_ana, decimal=4)
+
+        pass
     #
+
+
+if __name__ == '__main__':
+    t = TestFirstOrderSolve()
+    t.setUp()
+    t.test_numeric_single()

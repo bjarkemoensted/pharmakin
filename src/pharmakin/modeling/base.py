@@ -1,9 +1,8 @@
 from __future__ import annotations
-from copy import deepcopy
-from functools import partial
 import logging
 logger = logging.getLogger(__name__)
 import networkx as nx
+import numpy as np
 import sympy
 from sympy import Function, dsolve, Derivative, Eq
 from sympy.core.function import AppliedUndef
@@ -73,6 +72,36 @@ def _summarize_reactions(reactions: Iterable[Reaction]) -> dict:
     return res
 
 
+def solve_numerical(compounds: Iterable[Compound], reactions: Iterable[Reaction], delta_t: float, T:float|int):
+    
+    # TODO make this cleaner and faster. Make test for prodrug system, then optimize this!!!
+    compounds = sorted(compounds, key=lambda c: c.label)
+    x = [c.A_0 for c in compounds]
+
+    temp = [[val for val in x]]
+
+    conc_vars = tuple(c.A_t for c in compounds)
+    f_elems = []
+    
+    gradients = _summarize_reactions(reactions)
+    for c in compounds:
+        slope = gradients[c.Ap]
+        f_dA = sympy.lambdify(conc_vars, slope)
+        f_elems.append(f_dA)
+    
+    t = 0.0
+    while t < T:
+        dA_dt = [f(*x) for f in f_elems]
+        x = [a+b*delta_t for a, b in zip(x, dA_dt)]
+        temp.append(x)
+        t += delta_t
+
+
+    seqs = list(zip(*temp))
+    res = {c.label: s for c, s in zip(compounds, seqs)}
+    return res    
+
+
 param: TypeAlias = float|int|sympy.Basic
 
 
@@ -132,32 +161,28 @@ class FirstOrderModel(Model):
         )
         return sols
 
-
+    def solve_numerical(self, delta_t: float, T: float|int):
+        res = solve_numerical(compounds=self.compounds.values(), reactions=self.reactions, delta_t=delta_t, T=T)
+        return res
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     hmm = t_half_from_k(2.0)
-    print(sympy.log(2)/1.0, type(t_half_from_k(2.0)), isinstance(hmm, sympy.Basic))
+    
     
     model = FirstOrderModel()
     model.add_compound("LDX", initial_amount=100.0)
-    
     model.add_compound("AMP")
     model.add_reaction(reactant_label="LDX", metabolite_label="AMP", t_half=1.0)
     model.add_reaction(reactant_label="AMP", t_half=10.5)
-    
-    eqs = model.get_equations()
-    print(eqs)
-    print(model.get_initial_conditions())
-    sols = dsolve(
-        eqs,
-        #ics=model.get_initial_conditions()
-    )
-    
-    print("\n*Solutions:*")
-    print(sols)
+
+    a = model.solve_analytic()
+    print(a)
     print()
+
+    num = model.solve_numerical(delta_t=0.01, T=24)
     
-    for r in model.reactions:
-        print(float(r.k))
+    for k, v in num.items():
+        print(k, v[:5])
+    
