@@ -33,13 +33,20 @@ class Compound:
 class Model:
     def __init__(self):
         self.G = nx.DiGraph()
+        
         self.compounds: dict[str, Compound] = dict()
+        # Map concentration(time) to compound objects
+        self._A_t_to_compound: dict[sympy.core.function.AppliedUndef, Compound] = dict()
         self.reactions: list[Reaction] = []
 
     def add_compound(self, label: str, initial_amount = 0.0):
+        if label in self.compounds:
+            raise RuntimeError(f"Compound {label} has already been added to model.")
+        
         compound = Compound(label=label, A_0=initial_amount)
         self.G.add_node(label)
         self.compounds[label] = compound
+        self._A_t_to_compound[compound.A_t] = compound
         return self
     
     def _ensure_added(self, *labels: str|None):
@@ -103,6 +110,7 @@ def solve_numerical(compounds: Iterable[Compound], reactions: Iterable[Reaction]
 
 
 param: TypeAlias = float|int|sympy.Basic
+solution_type: TypeAlias = dict[str, sympy.Expr]
 
 
 class FirstOrderReaction(Reaction):
@@ -152,14 +160,17 @@ class FirstOrderModel(Model):
         
         return res
 
-    def solve_analytic(self):
+    def solve_analytic(self) -> dict[str, sympy.Expr]:
         eqs = self.get_equations()
         ics = self.get_initial_conditions()
         sols = dsolve(
             eqs,
             ics=ics
         )
-        return sols
+        
+        res = {self._A_t_to_compound[solution.lhs].label: solution.rhs for solution in sols}
+        
+        return res
 
     def solve_numerical(self, delta_t: float, T: float|int):
         res = solve_numerical(compounds=self.compounds.values(), reactions=self.reactions, delta_t=delta_t, T=T)
@@ -177,6 +188,8 @@ if __name__ == '__main__':
     model.add_reaction(reactant_label="LDX", metabolite_label="AMP", t_half=1.0)
     model.add_reaction(reactant_label="AMP", t_half=10.5)
 
+    c = model.compounds["AMP"]
+    
     a = model.solve_analytic()
     print(a)
     print()
