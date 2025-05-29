@@ -79,25 +79,46 @@ def _summarize_reactions(reactions: Iterable[Reaction]) -> dict:
     return res
 
 
-# TODO make this cleaner and faster. Make test for prodrug system, then optimize this!!!
-def solve_numerical(compounds: Iterable[Compound], reactions: Iterable[Reaction], t_vals: np.ndarray):
+def solve_numerical(
+        compounds: Iterable[Compound],
+        reactions: Iterable[Reaction],
+        t_vals: np.ndarray,
+        max_relative_step_size: float=0.01):
+    """Solves numerically a system consisting of the specified compounds and reactions.
+    This takes a simple approach and computes at each time step:
+        * The current reaction rates from the current drug concentrations.
+        * How quickly the reaction rates are changing, given the current rates.
+    The above steps are equivalent to computing a velocity given a current position, and an acceleration given
+    the current velocities. For this reason, standard symbols representing position (x), velocity (v), and
+    acceleration (a) are used in the code.
+    compounds: Iterable of compunds in the model.
+    reactions: Iterable of reactions in the model.
+    t_vals: numpy array of time values. This must begin at 0.0, as the solver assumes the initial values
+        stored under .A_0 in each compund are initially valid. The reason for explicitly specifying an
+        array of time values (rather than e.g. a stop-time, and step size), is to make it easier to
+        compare with analytical solutions, where concentrations are already available as a function of time,
+        and must be passed a time array to obtain a sequence of concentrations.
+    max_relative_step_size (float) - The maximum allowed change relative to current concentration before
+        a warning is raised. For example, if this value is 0.01, and if at any time step sum of absolute changes
+        in concentrations exceed 1% of the current concentration, the logger will issue a warning.
+        The logger will only warn the first time this threshold is exceeded."""
     
     # Check we start at t=0 (because we initialize with the initial values A_0 for each compound)
     assert t_vals[0] == 0.0
+    warned = False
     
     # Make sure compounds are ordered
     compounds = sorted(compounds, key=lambda c: c.label)
     
     # Determine the rate of change in concentration of each compound (dA/dt), as a function of current concentrations
-    conc_vars = tuple(c.A_t for c in compounds)
+    x_vars = tuple(c.A_t for c in compounds)
     gradients = _summarize_reactions(reactions)
     slopes = [gradients[c.Ap] for c in compounds]
-    fp = sympy.lambdify(conc_vars, slopes, modules="numpy")
+    fp = sympy.lambdify(x_vars, slopes, modules="numpy")
     
-    # Wrap in a function which takes and returns a numpy array (each element corresponding to a concentration)
-    def f_prime(s: np.array) -> np.array:
-        res_list = fp(*s)
-        return np.array(res_list)
+    v_vars = tuple(c.Ap for c in compounds)
+    second_derivatives = [sympy.Derivative(s, symbols.t).doit() for s in slopes]
+    fpp = sympy.lambdify(v_vars, second_derivatives, modules="numpy")
     
     # Make a matrix for holding the results, and set the first row to initial values
     x = np.array([c.A_0 for c in compounds])
@@ -106,13 +127,19 @@ def solve_numerical(compounds: Iterable[Compound], reactions: Iterable[Reaction]
     ind = 0
     m[ind, :] = x
     
-    dA_dt_prev = np.full(shape=x.shape, fill_value=np.nan)
-    
     # Fill up the matrix using the gradients to interpolate from previous points
     for dt in np.diff(t_vals):
         ind += 1
-        dA_dt = f_prime(x)
-        step = dt*dA_dt
+        v = np.array(fp(*x))
+        a = np.array(fpp(*v))
+        step = dt*v +0.5*a*dt**2
+        
+        total_change = np.sum(np.abs(step))
+        total_conc = np.sum(np.abs(x))
+        toofast = total_change >= total_conc*max_relative_step_size
+        if toofast and not warned:
+            logger.warning(f"Step size exceeded threshold {max_relative_step_size}. Try greater temporal resolution.")
+            warned = True
         x += step
         m[ind, :] = x
     
@@ -214,12 +241,6 @@ if __name__ == '__main__':
     c = model.compounds["AMP"]
     
     a = model.solve_analytic()
-    print(a)
-    print()
-    
-    t_vals = np.linspace(0.0, 24.0, num=10000)
+
+    t_vals = np.linspace(0.0, 1.0, num=1000)
     num = model.solve_numerical(t_vals)
-    
-    for k, v in num.items():
-        print(k, v[:5])
-    

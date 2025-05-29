@@ -95,7 +95,7 @@ class TestFirstOrderSolve(TestCase):
         self.models = (self.amp_model, self.ldx_model)
 
     def get_tvals(self) -> np.ndarray:
-        res = np.linspace(0.0, 100.0, num=1_000_000)
+        res = np.linspace(0.0, 100.0, num=100_000)
         return res
 
     def test_model_data_types(self):
@@ -121,7 +121,6 @@ class TestFirstOrderSolve(TestCase):
             self.assertEqual(set(s1.keys()), set(s2.keys()))
             for k, arr1 in s1.items():
                 arr2 = s2[k]
-                print(f"Mean diff (e-6): {1_000_000*np.mean(np.abs((arr1 - arr2))):.2f}")  # del!!!
                 np.testing.assert_almost_equal(arr1, arr2, **kwargs)
             #
         #
