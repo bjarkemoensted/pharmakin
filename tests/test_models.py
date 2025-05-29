@@ -4,7 +4,7 @@ Cho S, Yoon YR. Understanding the pharmacokinetics of prodrug and metabolite. Tr
 
 import numpy as np
 import sympy
-from typing import TypeAlias
+from typing import Callable
 from unittest import TestCase
 
 from pharmakin.kinetics.first_order import k_el
@@ -12,10 +12,15 @@ from pharmakin.modeling.base import FirstOrderModel, solution_type
 from pharmakin.modeling import symbols
 
 
+def _lambdify_solutions(solutions: dict[str, sympy.Expr]) -> dict[str, Callable[[float], float]]:
+    res = {k: sympy.lambdify(symbols.t, v) for k, v in solutions.items()}
+    return res
+
+
 def single_drug_example(
         t_half: float|int,
         initial_amount: float=100.0,
-        label: str="drug") -> tuple[FirstOrderModel, solution_type]:
+        label: str="drug") -> tuple[FirstOrderModel, dict[str, sympy.Expr]]:
     """Sets up a model for a single drug being metabolized (with first=order kinetics).
     Returns the model and the analyitical solution. For consistency with the prodrug model,
     the solution is provided as a list of a single sympy expression, representing the
@@ -40,7 +45,7 @@ def prodrug_example(
         A_0: float=100.0,
         label_prodrug: str="prodrug",
         label_active: str="active"
-    ) -> tuple[FirstOrderModel, solution_type]:
+    ) -> tuple[FirstOrderModel, dict[str, sympy.Expr]]:
     """Makes model and solution for a prodrug system, with a prodrug metabolized into an active drug."""
     
     k1 = k_el(half_life=t_half_prodrug)
@@ -77,15 +82,21 @@ class TestFirstOrderSolve(TestCase):
         t_half_amp = 10.5
         t_half_ldx = 1.0
         # Example - metabolization of dextroamphetamine
-        self.amp_model, self.amp_solutions = single_drug_example(label="AMP", t_half=t_half_amp, initial_amount=20.0)
+        self.amp_model, amp_solutions = single_drug_example(label="AMP", t_half=t_half_amp, initial_amount=20.0)
+        self.amp_solutions = _lambdify_solutions(amp_solutions)
         
         # Example - lisdexamphetamine prodrug
-        self.ldx_model, self.ldx_solutions = prodrug_example(
+        self.ldx_model, ldx_solutions = prodrug_example(
             label_prodrug="LDX", label_active="AMP",
             t_half_active=t_half_amp, t_half_prodrug=t_half_ldx,
             A_0=60.0)
+        self.ldx_solutions = _lambdify_solutions(ldx_solutions)
         
         self.models = (self.amp_model, self.ldx_model)
+
+    def get_tvals(self) -> np.ndarray:
+        res = np.linspace(0.0, 100.0, num=1_000_000)
+        return res
 
     def test_model_data_types(self):
         """Checks that the model uses expected data types. Adding this test because sympy types are a bit tricky
@@ -97,50 +108,55 @@ class TestFirstOrderSolve(TestCase):
                 self.assertIsInstance(compound.A, sympy.core.function.UndefinedFunction)
                 self.assertIsInstance(compound.A_t, sympy.core.function.AppliedUndef)
     
-    def _check_solutions_equiv(self, s1: solution_type, s2: solution_type, t_vals: np.ndarray|None=None):
+    def _compare_numeric(self, *solutions: dict[str, np.ndarray], decimal: int|None=None, **kwargs):
         """Checks if the 2 provided sympy expressions are (approximately) the same.
         Converts both into functions and checks that a number of values for t result in very close results."""
         
-        self.assertEqual(set(s1.keys()), set(s2.keys()))
+        assert len(solutions) > 1
+        assert all(isinstance(arr, np.ndarray) for d in solutions for arr in d.values())
         
-        if not t_vals:
-            t_vals = np.linspace(0.0, 100.0, num=1000)
+        if decimal is not None:
+            kwargs.update(decimal=decimal)
+        for s1, s2 in zip(solutions[:-1], solutions[1:]):
+            self.assertEqual(set(s1.keys()), set(s2.keys()))
+            for k, arr1 in s1.items():
+                arr2 = s2[k]
+                print(f"Mean diff (e-6): {1_000_000*np.mean(np.abs((arr1 - arr2))):.2f}")  # del!!!
+                np.testing.assert_almost_equal(arr1, arr2, **kwargs)
+            #
+        #
+    
+    def _compare_funcs(self, *solutions: dict[str, Callable[[float], float]], **kwargs):
+        assert all(callable(f) for d in solutions for f in d.values())
         
-        for compound_label in sorted(s1.keys()):
-            expressions = (d[compound_label] for d in (s1, s2))
-            funcs = (sympy.lambdify(symbols.t, e) for e in expressions)
-            f1, f2 = funcs
-            np.testing.assert_almost_equal(f1(t_vals), f2(t_vals))
+        t = self.get_tvals()
+        vals = ({label: func(t) for label, func in s.items()} for s in solutions)
+        return self._compare_numeric(*vals, **kwargs)
     
     def test_analytic_single(self):
         """Solves the single-drug model analytically, and compares with the expected result"""
         correct = self.amp_solutions
         model_solutions = self.amp_model.solve_analytic()
-        self._check_solutions_equiv(model_solutions, correct)
+        self._compare_funcs(model_solutions, correct)
     
     def test_analytic_prodrug(self):
         """Solves the pro-drug model analytically and compares with expected result"""
         model_solutions = self.ldx_model.solve_analytic()
-        self._check_solutions_equiv(model_solutions, self.ldx_solutions)
+        self._compare_funcs(model_solutions, self.ldx_solutions)
     
     def test_numeric_single(self):
-        # TODO make less messy
-        correct = self.amp_solutions["AMP"]
-        n = 1_000_000
-        T = 100.0
-        t_vals = np.linspace(0.0, T, num=n)
-        f = sympy.lambdify(symbols.t, correct)
-        delta_t = t_vals[1] - t_vals[0]
+        t = self.get_tvals()
+        correct = {label: f(t) for label, f in self.amp_solutions.items()}
         
-        num = self.amp_model.solve_numerical(delta_t=delta_t, T=T)
-        assert len(num) == 1
-        vals_num = np.array([float(v) for v in list(num.values())[0]])
-        print(vals_num[:3])
-        vals_ana = np.array(f(t_vals))
+        num = self.amp_model.solve_numerical(t_vals=t)
+        self._compare_numeric(num, correct, decimal=3)
+    
+    def test_numeric_prodrug(self):
+        t = self.get_tvals()
+        correct = {label: f(t) for label, f in self.ldx_solutions.items()}
         
-        np.testing.assert_almost_equal(vals_num[:len(vals_ana)], vals_ana, decimal=4)
-
-        pass
+        num = self.ldx_model.solve_numerical(t_vals=t)
+        self._compare_numeric(num, correct, decimal=3)
     #
 
 
@@ -148,3 +164,4 @@ if __name__ == '__main__':
     t = TestFirstOrderSolve()
     t.setUp()
     t.test_numeric_single()
+    t.test_numeric_prodrug()

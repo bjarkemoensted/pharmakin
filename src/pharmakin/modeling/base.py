@@ -6,7 +6,7 @@ import numpy as np
 import sympy
 from sympy import Function, dsolve, Derivative, Eq
 from sympy.core.function import AppliedUndef
-from typing import Any, Iterable, TypeAlias
+from typing import Any, Callable, Iterable, TypeAlias
 
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
@@ -79,38 +79,51 @@ def _summarize_reactions(reactions: Iterable[Reaction]) -> dict:
     return res
 
 
-def solve_numerical(compounds: Iterable[Compound], reactions: Iterable[Reaction], delta_t: float, T:float|int):
+# TODO make this cleaner and faster. Make test for prodrug system, then optimize this!!!
+def solve_numerical(compounds: Iterable[Compound], reactions: Iterable[Reaction], t_vals: np.ndarray):
     
-    # TODO make this cleaner and faster. Make test for prodrug system, then optimize this!!!
+    # Check we start at t=0 (because we initialize with the initial values A_0 for each compound)
+    assert t_vals[0] == 0.0
+    
+    # Make sure compounds are ordered
     compounds = sorted(compounds, key=lambda c: c.label)
-    x = [c.A_0 for c in compounds]
-
-    temp = [[val for val in x]]
-
+    
+    # Determine the rate of change in concentration of each compound (dA/dt), as a function of current concentrations
     conc_vars = tuple(c.A_t for c in compounds)
-    f_elems = []
-    
     gradients = _summarize_reactions(reactions)
-    for c in compounds:
-        slope = gradients[c.Ap]
-        f_dA = sympy.lambdify(conc_vars, slope)
-        f_elems.append(f_dA)
+    slopes = [gradients[c.Ap] for c in compounds]
+    fp = sympy.lambdify(conc_vars, slopes, modules="numpy")
     
-    t = 0.0
-    while t < T:
-        dA_dt = [f(*x) for f in f_elems]
-        x = [a+b*delta_t for a, b in zip(x, dA_dt)]
-        temp.append(x)
-        t += delta_t
+    # Wrap in a function which takes and returns a numpy array (each element corresponding to a concentration)
+    def f_prime(s: np.array) -> np.array:
+        res_list = fp(*s)
+        return np.array(res_list)
+    
+    # Make a matrix for holding the results, and set the first row to initial values
+    x = np.array([c.A_0 for c in compounds])
+    m = np.empty(shape=(len(t_vals), len(compounds)))
+    m.fill(np.nan)
+    ind = 0
+    m[ind, :] = x
+    
+    dA_dt_prev = np.full(shape=x.shape, fill_value=np.nan)
+    
+    # Fill up the matrix using the gradients to interpolate from previous points
+    for dt in np.diff(t_vals):
+        ind += 1
+        dA_dt = f_prime(x)
+        step = dt*dA_dt
+        x += step
+        m[ind, :] = x
+    
+    # Map the label for each compound to an array of its concentrations at the input times
+    d = {compound.label: col for compound, col in zip(compounds, m.T, strict=True)}
 
-
-    seqs = list(zip(*temp))
-    res = {c.label: s for c, s in zip(compounds, seqs)}
-    return res    
+    return d
 
 
 param: TypeAlias = float|int|sympy.Basic
-solution_type: TypeAlias = dict[str, sympy.Expr]
+solution_type: TypeAlias = sympy.Expr|Callable[[float], float]
 
 
 class FirstOrderReaction(Reaction):
@@ -160,20 +173,30 @@ class FirstOrderModel(Model):
         
         return res
 
-    def solve_analytic(self) -> dict[str, sympy.Expr]:
+    def solve_analytic(self, lambdify: bool=True) -> dict[str, solution_type]:
+        """Tries to solve the system analytically.
+        Returns a dict mapping each compound label to its solution.
+        If lambdify is True, each solution is a callable, representing the concentration as a function of time.
+        Otherwise, each solution is a sympy expression representing the solution."""
+        
         eqs = self.get_equations()
         ics = self.get_initial_conditions()
-        sols = dsolve(
+        solutions = dsolve(
             eqs,
             ics=ics
         )
         
-        res = {self._A_t_to_compound[solution.lhs].label: solution.rhs for solution in sols}
-        
+        res = dict()
+        for solution in solutions:
+            expr = solution.rhs
+            compound = self._A_t_to_compound[solution.lhs]
+            this_res = sympy.lambdify(symbols.t, expr) if lambdify else expr
+            res[compound.label] = this_res
+            
         return res
 
-    def solve_numerical(self, delta_t: float, T: float|int):
-        res = solve_numerical(compounds=self.compounds.values(), reactions=self.reactions, delta_t=delta_t, T=T)
+    def solve_numerical(self, t_vals: np.ndarray):
+        res = solve_numerical(compounds=self.compounds.values(), reactions=self.reactions, t_vals=t_vals)
         return res
 
 
@@ -193,8 +216,9 @@ if __name__ == '__main__':
     a = model.solve_analytic()
     print(a)
     print()
-
-    num = model.solve_numerical(delta_t=0.01, T=24)
+    
+    t_vals = np.linspace(0.0, 24.0, num=10000)
+    num = model.solve_numerical(t_vals)
     
     for k, v in num.items():
         print(k, v[:5])
