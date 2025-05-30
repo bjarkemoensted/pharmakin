@@ -107,6 +107,14 @@ class TestFirstOrderSolve(TestCase):
             for compound in model.compounds.values():
                 self.assertIsInstance(compound.A, sympy.core.function.UndefinedFunction)
                 self.assertIsInstance(compound.A_t, sympy.core.function.AppliedUndef)
+            
+            for eq in model.get_equations():
+                self.assertIsInstance(eq.lhs, sympy.core.function.Derivative)
+                self.assertIsInstance(eq.rhs, sympy.Expr)
+
+            for cond, val in model.get_initial_conditions().items():
+                self.assertIsInstance(cond, sympy.core.function.Application)
+                self.assertIsInstance(val, (int, float))
     
     def _compare_numeric(self, *solutions: dict[str, np.ndarray], decimal: int|None=None, **kwargs):
         """Checks if the 2 provided sympy expressions are (approximately) the same.

@@ -4,12 +4,12 @@ logger = logging.getLogger(__name__)
 import networkx as nx
 import numpy as np
 import sympy
-from sympy import Function, dsolve, Derivative, Eq
-from sympy.core.function import AppliedUndef
+from sympy import dsolve, Derivative, Eq
 from typing import Any, Callable, Iterable, TypeAlias
 
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
+from pharmakin.modeling.solvers import solve_numerical
 
 
 class Compound:
@@ -77,76 +77,6 @@ def _summarize_reactions(reactions: Iterable[Reaction]) -> dict:
         #
     
     return res
-
-
-def solve_numerical(
-        compounds: Iterable[Compound],
-        reactions: Iterable[Reaction],
-        t_vals: np.ndarray,
-        max_relative_step_size: float=0.01):
-    """Solves numerically a system consisting of the specified compounds and reactions.
-    This takes a simple approach and computes at each time step:
-        * The current reaction rates from the current drug concentrations.
-        * How quickly the reaction rates are changing, given the current rates.
-    The above steps are equivalent to computing a velocity given a current position, and an acceleration given
-    the current velocities. For this reason, standard symbols representing position (x), velocity (v), and
-    acceleration (a) are used in the code.
-    compounds: Iterable of compunds in the model.
-    reactions: Iterable of reactions in the model.
-    t_vals: numpy array of time values. This must begin at 0.0, as the solver assumes the initial values
-        stored under .A_0 in each compund are initially valid. The reason for explicitly specifying an
-        array of time values (rather than e.g. a stop-time, and step size), is to make it easier to
-        compare with analytical solutions, where concentrations are already available as a function of time,
-        and must be passed a time array to obtain a sequence of concentrations.
-    max_relative_step_size (float) - The maximum allowed change relative to current concentration before
-        a warning is raised. For example, if this value is 0.01, and if at any time step sum of absolute changes
-        in concentrations exceed 1% of the current concentration, the logger will issue a warning.
-        The logger will only warn the first time this threshold is exceeded."""
-    
-    # Check we start at t=0 (because we initialize with the initial values A_0 for each compound)
-    assert t_vals[0] == 0.0
-    warned = False
-    
-    # Make sure compounds are ordered
-    compounds = sorted(compounds, key=lambda c: c.label)
-    
-    # Determine the rate of change in concentration of each compound (dA/dt), as a function of current concentrations
-    x_vars = tuple(c.A_t for c in compounds)
-    gradients = _summarize_reactions(reactions)
-    slopes = [gradients[c.Ap] for c in compounds]
-    fp = sympy.lambdify(x_vars, slopes, modules="numpy")
-    
-    v_vars = tuple(c.Ap for c in compounds)
-    second_derivatives = [sympy.Derivative(s, symbols.t).doit() for s in slopes]
-    fpp = sympy.lambdify(v_vars, second_derivatives, modules="numpy")
-    
-    # Make a matrix for holding the results, and set the first row to initial values
-    x = np.array([c.A_0 for c in compounds])
-    m = np.empty(shape=(len(t_vals), len(compounds)))
-    m.fill(np.nan)
-    ind = 0
-    m[ind, :] = x
-    
-    # Fill up the matrix using the gradients to interpolate from previous points
-    for dt in np.diff(t_vals):
-        ind += 1
-        v = np.array(fp(*x))
-        a = np.array(fpp(*v))
-        step = dt*v +0.5*a*dt**2
-        
-        total_change = np.sum(np.abs(step))
-        total_conc = np.sum(np.abs(x))
-        toofast = total_change >= total_conc*max_relative_step_size
-        if toofast and not warned:
-            logger.warning(f"Step size exceeded threshold {max_relative_step_size}. Try greater temporal resolution.")
-            warned = True
-        x += step
-        m[ind, :] = x
-    
-    # Map the label for each compound to an array of its concentrations at the input times
-    d = {compound.label: col for compound, col in zip(compounds, m.T, strict=True)}
-
-    return d
 
 
 param: TypeAlias = float|int|sympy.Basic
@@ -223,7 +153,11 @@ class FirstOrderModel(Model):
         return res
 
     def solve_numerical(self, t_vals: np.ndarray):
-        res = solve_numerical(compounds=self.compounds.values(), reactions=self.reactions, t_vals=t_vals)
+        funcs = [c.A_t for c in self.compounds.values()]
+        gradients = _summarize_reactions(self.reactions)
+        ics = self.get_initial_conditions()
+        d = solve_numerical(funcs, gradients, ics, t_vals=t_vals)
+        res = {self._A_t_to_compound[k].label: v for k, v in d.items()}
         return res
 
 
