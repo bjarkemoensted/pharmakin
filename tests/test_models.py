@@ -12,6 +12,12 @@ from pharmakin.modeling.base import FirstOrderModel, solution_type
 from pharmakin.modeling import symbols
 
 
+AMP_T_HALF = 10.5
+AMP_LABEL = "AMP"
+LDX_T_HALF = 1.0
+LDX_LABEL = "LDX"
+
+
 def _lambdify_solutions(solutions: dict[str, sympy.Expr]) -> dict[str, Callable[[float], float]]:
     res = {k: sympy.lambdify(symbols.t, v) for k, v in solutions.items()}
     return res
@@ -76,46 +82,12 @@ def prodrug_example(
     return model, solutions
 
 
-class TestFirstOrderSolve(TestCase):
-    
-    def setUp(self):
-        t_half_amp = 10.5
-        t_half_ldx = 1.0
-        # Example - metabolization of dextroamphetamine
-        self.amp_model, amp_solutions = single_drug_example(label="AMP", t_half=t_half_amp, initial_amount=20.0)
-        self.amp_solutions = _lambdify_solutions(amp_solutions)
-        
-        # Example - lisdexamphetamine prodrug
-        self.ldx_model, ldx_solutions = prodrug_example(
-            label_prodrug="LDX", label_active="AMP",
-            t_half_active=t_half_amp, t_half_prodrug=t_half_ldx,
-            A_0=60.0)
-        self.ldx_solutions = _lambdify_solutions(ldx_solutions)
-        
-        self.models = (self.amp_model, self.ldx_model)
-
-    def get_tvals(self) -> np.ndarray:
+class Base(TestCase):
+    @staticmethod
+    def get_tvals() -> np.ndarray:
         res = np.linspace(0.0, 100.0, num=100_000)
         return res
 
-    def test_model_data_types(self):
-        """Checks that the model uses expected data types. Adding this test because sympy types are a bit tricky
-        to keep track of, e.g. instantiating a 'Function' doesn't give a 'Function' instance but rather an
-        UndefinedFunction etc."""
-
-        for model in self.models:
-            for compound in model.compounds.values():
-                self.assertIsInstance(compound.A, sympy.core.function.UndefinedFunction)
-                self.assertIsInstance(compound.A_t, sympy.core.function.AppliedUndef)
-            
-            for eq in model.get_equations():
-                self.assertIsInstance(eq.lhs, sympy.core.function.Derivative)
-                self.assertIsInstance(eq.rhs, sympy.Expr)
-
-            for cond, val in model.get_initial_conditions().items():
-                self.assertIsInstance(cond, sympy.core.function.Application)
-                self.assertIsInstance(val, (int, float))
-    
     def _compare_numeric(self, *solutions: dict[str, np.ndarray], decimal: int|None=None, **kwargs):
         """Checks if the 2 provided sympy expressions are (approximately) the same.
         Converts both into functions and checks that a number of values for t result in very close results."""
@@ -132,43 +104,76 @@ class TestFirstOrderSolve(TestCase):
                 np.testing.assert_almost_equal(arr1, arr2, **kwargs)
             #
         #
+    #
+
+class TestSingleDrugModel(Base):
+    @staticmethod
+    def make_model_and_solution():
+        # Example - metabolization of dextroamphetamine
+        model, solution = single_drug_example(label=AMP_LABEL, t_half=AMP_T_HALF, initial_amount=20.0)
+        return model, solution
     
-    def _compare_funcs(self, *solutions: dict[str, Callable[[float], float]], **kwargs):
-        assert all(callable(f) for d in solutions for f in d.values())
+    def setUp(self):
+        model, solution = self.make_model_and_solution()
+        self.model = model
+        self.solution = _lambdify_solutions(solution)
+
+    def test_model_data_types(self):
+        """Checks that the model uses expected data types. Adding this test because sympy types are a bit tricky
+        to keep track of, e.g. instantiating a 'Function' doesn't give a 'Function' instance but rather an
+        UndefinedFunction etc."""
+
+        for compound in self.model.compounds.values():
+            self.assertIsInstance(compound.A, sympy.core.function.UndefinedFunction)
+            self.assertIsInstance(compound.A_t, sympy.core.function.AppliedUndef)
         
-        t = self.get_tvals()
-        vals = ({label: func(t) for label, func in s.items()} for s in solutions)
-        return self._compare_numeric(*vals, **kwargs)
+        for eq in self.model.get_equations():
+            self.assertIsInstance(eq.lhs, sympy.core.function.Derivative)
+            self.assertIsInstance(eq.rhs, sympy.Expr)
+
+        for cond, val in self.model.get_initial_conditions().items():
+            self.assertIsInstance(cond, sympy.core.function.Application)
+            self.assertIsInstance(val, (int, float))
+        #
     
-    def test_analytic_single(self):
+    def test_analytic_solve(self):
         """Solves the single-drug model analytically, and compares with the expected result"""
-        correct = self.amp_solutions
-        model_solutions = self.amp_model.solve_analytic()
-        self._compare_funcs(model_solutions, correct)
-    
-    def test_analytic_prodrug(self):
-        """Solves the pro-drug model analytically and compares with expected result"""
-        model_solutions = self.ldx_model.solve_analytic()
-        self._compare_funcs(model_solutions, self.ldx_solutions)
-    
-    def test_numeric_single(self):
-        t = self.get_tvals()
-        correct = {label: f(t) for label, f in self.amp_solutions.items()}
         
-        num = self.amp_model.solve_numerical(t_vals=t)
-        self._compare_numeric(num, correct, decimal=3)
-    
-    def test_numeric_prodrug(self):
         t = self.get_tvals()
-        correct = {label: f(t) for label, f in self.ldx_solutions.items()}
+        correct = {k: f(t) for k, f in self.solution.items()}
+        model_solutions = self.model.solve(t_vals=t, how="analytic")
+        self._compare_numeric(model_solutions, correct)
+    
+    def test_simple_numeric_solve(self):
+        t = self.get_tvals()
+        correct = {label: f(t) for label, f in self.solution.items()}
         
-        num = self.ldx_model.solve_numerical(t_vals=t)
-        self._compare_numeric(num, correct, decimal=3)
+        model_solutions = self.model.solve(t_vals=t, how="simple")
+        self._compare_numeric(model_solutions, correct, decimal=3)
+    
+    def test_numeric_solve(self):
+        t = self.get_tvals()
+        correct = {label: f(t) for label, f in self.solution.items()}
+        
+        model_solutions = self.model.solve(t_vals=t, how="numeric")
+        self._compare_numeric(model_solutions, correct, decimal=3)
+    #
+
+
+class TestProDrugModel(TestSingleDrugModel):
+    @staticmethod
+    def make_model_and_solution():
+        # Example - lisdexamphetamine prodrug
+        model, solution = prodrug_example(
+            label_prodrug=LDX_LABEL, label_active=AMP_LABEL,
+            t_half_active=AMP_T_HALF, t_half_prodrug=LDX_T_HALF,
+            A_0=60.0)
+        return model, solution
     #
 
 
 if __name__ == '__main__':
-    t = TestFirstOrderSolve()
+    t = TestSingleDrugModel()
     t.setUp()
-    t.test_numeric_single()
+    t.test_simple_numeric_solve()
     t.test_numeric_prodrug()

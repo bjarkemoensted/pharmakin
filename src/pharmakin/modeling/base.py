@@ -4,12 +4,15 @@ logger = logging.getLogger(__name__)
 import networkx as nx
 import numpy as np
 import sympy
-from sympy import dsolve, Derivative, Eq
-from typing import Any, Callable, Iterable, TypeAlias
+from sympy import Derivative
+from typing import Any, Callable, cast, Iterable, Literal, TypeAlias
 
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
-from pharmakin.modeling.solvers import solve_numerical
+from pharmakin.modeling.solvers import Solver
+
+
+solve_methods: TypeAlias = Literal["analytic", "numeric", "simple", "auto"]
 
 
 class Compound:
@@ -31,8 +34,8 @@ class Compound:
 
 
 class Model:
-    def __init__(self):
-        self.G = nx.DiGraph()
+    def __init__(self) -> None:
+        self.G: nx.DiGraph = nx.DiGraph()
         
         self.compounds: dict[str, Compound] = dict()
         # Map concentration(time) to compound objects
@@ -65,8 +68,8 @@ class Reaction:
         #TODO implement stoichiometry stuff (taking differences in molecular mass into account)
 
 
-def _summarize_reactions(reactions: Iterable[Reaction]) -> dict:
-    res = dict()
+def _summarize_reactions(reactions: Iterable[Reaction]) -> dict[sympy.Derivative, sympy.Expr]:
+    res: dict[sympy.Derivative, sympy.Expr] = dict()
     for reaction in reactions:
         for gradient, expr in reaction.rates:
             try:
@@ -104,7 +107,7 @@ class FirstOrderModel(Model):
         self._ensure_added(reactant_label, metabolite_label)
         
         reactant = self.compounds[reactant_label]
-        metabolite = self.compounds.get(metabolite_label)
+        metabolite = self.compounds[metabolite_label] if metabolite_label is not None else None
         
         reaction = FirstOrderReaction(k=k, reactant=reactant, metabolite=metabolite)
         
@@ -130,35 +133,60 @@ class FirstOrderModel(Model):
         
         return res
 
-    def solve_analytic(self, lambdify: bool=True) -> dict[str, solution_type]:
-        """Tries to solve the system analytically.
-        Returns a dict mapping each compound label to its solution.
-        If lambdify is True, each solution is a callable, representing the concentration as a function of time.
-        Otherwise, each solution is a sympy expression representing the solution."""
-        
-        eqs = self.get_equations()
-        ics = self.get_initial_conditions()
-        solutions = dsolve(
-            eqs,
-            ics=ics
-        )
-        
-        res = dict()
-        for solution in solutions:
-            expr = solution.rhs
-            compound = self._A_t_to_compound[solution.lhs]
-            this_res = sympy.lambdify(symbols.t, expr) if lambdify else expr
-            res[compound.label] = this_res
-            
-        return res
-
-    def solve_numerical(self, t_vals: np.ndarray):
+    def _make_solver(self, t_vals: np.ndarray) -> Solver:
         funcs = [c.A_t for c in self.compounds.values()]
         gradients = _summarize_reactions(self.reactions)
         ics = self.get_initial_conditions()
-        d = solve_numerical(funcs, gradients, ics, t_vals=t_vals)
-        res = {self._A_t_to_compound[k].label: v for k, v in d.items()}
+        solver = Solver(
+            funcs = funcs,
+            gradients = gradients,
+            ics = ics,
+            t_vals=t_vals
+        )
+        return solver
+    
+    def solve(self, t_vals: np.ndarray, how: solve_methods="auto", **kwargs):
+        """Solves the system for the specified time values.
+        t_vals: numpy array representing time values.
+        how: The method to be used when solving. Can be:
+            "analytic": Uses sympy to solve the ODEs symbolically.
+            "numeric": Uses scipy's ivp method for numerical intergration.
+            "simple": Uses my own (super inefficient probably) solver which repeatedly iterates to the next time step
+                by using a second-order approximation given the current values.
+            "auto": Attempts the aforementioned methods in the listed order.
+        **kwargs will be forwarded to the corresponding solve method in the solver."""
+        
+        # Attempt multiple solve methods if auto is selected
+        if how == "auto":
+            priorities = ("analytic", "numeric", "simple")
+            for method in priorities:
+                try:
+                    return self.solve(t_vals=t_vals, how=cast(solve_methods, method), **kwargs)
+                except (ValueError, IndexError):
+                    continue
+                #
+            raise RuntimeError(f"All methods {priorities} failed to reach a solution.")
+        
+        # Make a solver and select solve method corresponding to the 'how' parameter
+        solver = self._make_solver(t_vals=t_vals)
+        methods: dict[solve_methods, Callable] = dict(
+            analytic=solver.solve_analytic,
+            simple=solver.solve_simple,
+            numeric=solver.solve_numerical
+        )
+        
+        try:
+            solve_func = methods[how]
+        except KeyError:
+            raise ValueError(f"Invalid solve method: '{how}'")
+    
+        # Solve the system
+        solutions = solve_func(**kwargs)
+        
+        # Use compound labels as key, instead of the symbol for concentration(time) (A(t)).
+        res = {self._A_t_to_compound[k].label: v for k, v in solutions.items()}
         return res
+    #
 
 
 if __name__ == '__main__':
@@ -174,7 +202,15 @@ if __name__ == '__main__':
 
     c = model.compounds["AMP"]
     
-    a = model.solve_analytic()
+    t = np.linspace(0.0, 1.0, num=1000)
+    a = model.solve(t, how="analytic")
 
-    t_vals = np.linspace(0.0, 1.0, num=1000)
-    num = model.solve_numerical(t_vals)
+    
+    for k, v in a.items():
+        print(k)
+        print(v[:10])
+        print()
+        
+    num = model.solve(t, how="numeric")
+    
+    
