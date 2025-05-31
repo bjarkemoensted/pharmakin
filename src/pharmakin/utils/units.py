@@ -1,7 +1,14 @@
 import pint
 
 
-ureg = pint.UnitRegistry()
+class UReg(pint.UnitRegistry):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.default_preferred_units: list[pint.Unit] = []
+
+
+ureg = UReg()
+
 Q_ = ureg.Quantity
 
 
@@ -34,7 +41,7 @@ def has_units(value):
     return isinstance(value, pint.Quantity) and not value.dimensionless
 
 
-def coerce_float(value, target_unit: pint.Unit=None):
+def coerce_float(value, target_unit: pint.Unit|None=None):
     """Removes units from a value.
     If value doesn't have units, it is returned as-is.
     If value has units and target_unit is set, the value is converted to the target unit

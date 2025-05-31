@@ -15,7 +15,7 @@ def _compute_rayleigh_scale(mean, scale):
     return dict(scale=scale)
 
 
-def _make_renamer(mean: str=None, scale: str=None):
+def _make_renamer(mean: str|None=None, scale: str|None=None):
     """Makes a function which takes mean and scale and returns a dictionary with the provided names for mean and scale.
     None can be used to exclude one of the parameters.
     For example, _make_renamer(mean="loc") returns a function which takes mean and scale as arguments,
@@ -41,7 +41,7 @@ _distribution_parsers = dict(
 )
 
 
-def parse_distribution_mean_scale(distribution: str, mean: float=None, scale: float=None) -> dict:
+def parse_distribution_mean_scale(distribution: str, mean: float|None=None, scale: float|None=None) -> dict:
     """Takes a distribution name, and values for mean/scale. Computes the parameters needed to make a distrution
     with the specified mean/scale.
     The resulting dict d can be passed to numpy.Generator.<distribution>(**d) to sample."""
@@ -66,7 +66,7 @@ class Simulator:
             distribution: str,
             lower_bound=None,
             upper_bound=None,
-            seed: int=None,
+            seed: int|None=None,
             **kwargs):
         """distribution is a string matching a distribution from numpy.random.Generator.<distribution>.
         seed is an optional interger seed for constructing the numpy PRNG.

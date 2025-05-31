@@ -7,7 +7,7 @@ def test_get_all_parameters(all_parameters):
     """Checks that every parameter subclass defined anywhere in the package is provided by get_all_parameters"""
 
     import pharmakin
-    importer = BulkImporter(from_=pharmakin, child_of=parameters.Parameter, recurse_submodules=True)
+    importer = BulkImporter(from_=[pharmakin], child_of=parameters.Parameter, recurse_submodules=True)
     all_in_package = importer()
     
     assert set(all_in_package) == set(all_parameters)

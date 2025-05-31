@@ -3,7 +3,7 @@ from types import UnionType
 from typing import final, get_args
 
 from pharmakin.utils.formula import Formula
-from pharmakin.utils.units import ureg, Dim, Q_, coerce_float, coerce_unit
+from pharmakin.utils.units import coerce_float, coerce_unit, ureg
 from pharmakin.utils.stats import Simulator
 
 
@@ -30,6 +30,7 @@ def _type_is_correct(value, type_condition):
 
 
 class ParameterMeta(type):
+    unit: pint.Unit
     def __new__(cls, name, bases, dct):
         """Called when a subclass is defined. Checks that a unit is correctly declared and registers the class."""
         # Enforce that unit is specified explicitly in the class body (i.e. not missing or inherited)
@@ -60,7 +61,7 @@ class Parameter(metaclass=ParameterMeta):
     Specifically, it declares a unit for the parameter, and has functionality for validating values for the parameter.
     Units must be specified explicitly when subclassing."""
 
-    unit = None
+    unit: pint.Unit = ureg.dimensionless
     lower = 0.0
     upper = float("inf")
     
@@ -123,7 +124,7 @@ class Parameter(metaclass=ParameterMeta):
     #
     
     @classmethod
-    def example_values(cls, size=None, with_units=False, seed: int=None):
+    def example_values(cls, size=None, with_units=False, seed: int|None=None):
         """Generates one or more examples of values the parameter could take.
         size is the number of values desired (None produces a single value).
         If with_units, the values will include values.

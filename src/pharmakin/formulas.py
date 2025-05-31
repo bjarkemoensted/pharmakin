@@ -8,7 +8,7 @@ from pharmakin.utils.utils import BulkImporter
 
 
 from pharmakin import kinetics
-get_all_formulas = BulkImporter(from_=kinetics, instance_of=Formula, recurse_submodules=True)
+get_all_formulas = BulkImporter(from_=[kinetics], instance_of=Formula, recurse_submodules=True)
 
 
 ALL_PARAMETERS = parameters.get_all_parameters()

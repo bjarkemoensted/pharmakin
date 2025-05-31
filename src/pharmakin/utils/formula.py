@@ -3,10 +3,10 @@ from collections import defaultdict
 from functools import wraps
 import inspect
 import sympy
-from typing import Callable, Iterable, TYPE_CHECKING
+from typing import Callable, Iterable, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pharmakin.utils.parameter_base import ParameterMeta
+    from pharmakin.utils.parameter_base import ParameterMeta, Parameter
 from pharmakin.utils.units import has_units
 
 
@@ -48,7 +48,7 @@ def make_symbol_key(symbols: Iterable):
 
 
 class Formula:
-    def __init__(self, func, result_class: ParameterMeta):
+    def __init__(self, func, result_class: Type[Parameter]):
         self.func = func
         self.result_class = result_class
         self.unit = self.result_class.unit
@@ -132,7 +132,7 @@ class Formula:
 
         return res
     
-    def __call__(self, *args, with_units: bool=None, **kwargs):
+    def __call__(self, *args, with_units: bool|None=None, **kwargs):
         """Computes a quantity given the input values.
         If with_units is True or False, the result will have units/be unitless.
         If with_units is None (default), the result will have units only if all inputs do."""
@@ -159,15 +159,15 @@ class Formulary:
 
     def __init__(self, parameters: Iterable[ParameterMeta], formulas: Iterable[Formula]):
         # For storing callable formulas and sympy equations
-        self.formulae = []
-        self.equations = []
+        self.formulae: list[Formula] = []
+        self.equations: list[sympy.Eq] = []
 
         # Maps from parameter names to parameter classes and sympy symbols
-        self.parameters = dict()
-        self.symbols = dict()
+        self.parameters: dict[str, ParameterMeta] = dict()
+        self.symbols: dict[str, sympy.Symbol] = dict()
         # Map parameter names
-        self.formulas_for_parameter = defaultdict(list)
-        self.formulas_containing_parameter = defaultdict(list)
+        self.formulas_for_parameter: defaultdict[str, list[Formula]] = defaultdict(list)
+        self.formulas_containing_parameter: defaultdict[str, list[Formula]] = defaultdict(list)
 
         # Register the parameters + formulas
         self.register_parameters(parameters)
@@ -287,7 +287,7 @@ class Formulary:
             #
         return res
         
-    def determine_parameter(self, parameter: ParameterMeta, **kwargs):
+    def determine_parameter(self, parameter: Type[Parameter], **kwargs):
         """Attempts to determine a parameter value from other parameters, specified as keyword arguments.
         The first argument is the target parameter class, which should be computed.
         The remaining keyword arguments are key-values for other parameters.

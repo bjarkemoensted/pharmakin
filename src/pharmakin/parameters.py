@@ -1,3 +1,4 @@
+import pint
 import sys
 _this_module = sys.modules[__name__]
 
@@ -6,7 +7,7 @@ from pharmakin.utils.units import Dim
 from pharmakin.utils.utils import BulkImporter
 
 
-get_all_parameters = BulkImporter(from_=_this_module, child_of=Parameter)
+get_all_parameters = BulkImporter(from_=[_this_module], child_of=Parameter)
 
 
 class dose(Parameter):
@@ -52,7 +53,8 @@ class half_life(Parameter):
 class elimination_rate_constant(Parameter):
     """The contant elimination rate (k) for first order kinetics"""
     
-    unit = Dim.TIME**-1
+    unit = (1 / pint.Quantity(1, Dim.TIME)).units
+    
 
 
 if __name__ == '__main__':

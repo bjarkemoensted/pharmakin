@@ -170,10 +170,3 @@ class TestProDrugModel(TestSingleDrugModel):
             A_0=60.0)
         return model, solution
     #
-
-
-if __name__ == '__main__':
-    t = TestSingleDrugModel()
-    t.setUp()
-    t.test_simple_numeric_solve()
-    t.test_numeric_prodrug()

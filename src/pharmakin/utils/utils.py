@@ -3,7 +3,7 @@ from importlib import import_module
 import os
 from pathlib import Path
 from types import ModuleType
-from typing import Iterable
+from typing import cast, Iterable
 
 
 def _iterate_modules(module):
@@ -37,9 +37,9 @@ class BulkImporter:
     """Helper callable for dynamically bulk importing specific classes or instances"""
     def __init__(
             self,
-            from_: Iterable|ModuleType,
-            instance_of: Iterable|type=None,
-            child_of: Iterable|type=None,
+            from_: Iterable[ModuleType],
+            instance_of: Iterable|type|None=None,
+            child_of: Iterable|type|None=None,
             recurse_submodules=False
             ):
         """from_ is a module, or an iterable of modules.
@@ -49,8 +49,6 @@ class BulkImporter:
         If recurse_submodules is True, all submodules are scanned as well."""
         
         # Cast all arguments to tuples for consistency
-        if isinstance(from_, ModuleType):
-            from_ = (from_,)
         if isinstance(instance_of, type):
             instance_of = (instance_of,)
         if isinstance(child_of, type):
@@ -76,12 +74,15 @@ class BulkImporter:
         res = sorted(mods, key=str)
         return res
     
-    def _instance_match(self, attribute):
+    def _instance_match(self, attribute) -> bool:
         """Checks if the attribute is an instance of any specified classes"""
+        if isinstance(self.instance_of, type|tuple):
+            return isinstance(attribute, self.instance_of)
         if self.instance_of is None:
             return True
+        else:
+            raise RuntimeError
         
-        return isinstance(attribute, self.instance_of)
     
     def _class_match(self, attribute):
         """Checks if the attribute is a child class of and specified class"""
