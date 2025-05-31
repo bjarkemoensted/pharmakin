@@ -5,6 +5,7 @@ import networkx as nx
 import numpy as np
 import sympy
 from sympy import Derivative
+from sympy.core.function import AppliedUndef, UndefinedFunction
 from typing import Any, Callable, cast, Iterable, Literal, TypeAlias
 
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
@@ -29,6 +30,7 @@ class Compound:
         
         A_suffix_str = f"{str(symbols.A)}_{self.label}"
         self.A = sympy.Function(A_suffix_str)
+        self.A = cast(UndefinedFunction, self.A)
         self.A_t = self.A(symbols.t)
         self.Ap = sympy.Derivative(self.A(symbols.t), symbols.t)
 
@@ -39,7 +41,7 @@ class Model:
         
         self.compounds: dict[str, Compound] = dict()
         # Map concentration(time) to compound objects
-        self._A_t_to_compound: dict[sympy.core.function.AppliedUndef, Compound] = dict()
+        self._A_t_to_compound: dict[AppliedUndef, Compound] = dict()
         self.reactions: list[Reaction] = []
 
     def add_compound(self, label: str, initial_amount = 0.0):
@@ -59,14 +61,10 @@ class Model:
 
 
 class Reaction:
-    def __init__(self, *rates: tuple[Any, sympy.Expr]):
-        for gradient, expr in rates:
-            pass  # TODO maybe do some type checking here?
-        
+    def __init__(self, *rates: tuple[sympy.Derivative, sympy.Expr]):
         logger.debug(f"Created reaction: {rates}.")
         self.rates = rates
-        #TODO implement stoichiometry stuff (taking differences in molecular mass into account)
-
+    #
 
 def _summarize_reactions(reactions: Iterable[Reaction]) -> dict[sympy.Derivative, sympy.Expr]:
     res: dict[sympy.Derivative, sympy.Expr] = dict()
@@ -87,11 +85,12 @@ solution_type: TypeAlias = sympy.Expr|Callable[[float], float]
 
 
 class FirstOrderReaction(Reaction):
-    def __init__(self, k: param, reactant: Compound, metabolite: Compound|None=None):
+    def __init__(self, k: param, reactant: Compound, metabolite: Compound|None=None, ratio: float=1.0):
 
         self.k = k
         self.t_half = t_half_from_k(k)
-        self.rate = self.k*reactant.A_t
+        self.ratio = ratio
+        self.rate = self.ratio*self.k*reactant.A_t
         
         rates = [(Derivative(reactant.A_t, symbols.t), -self.rate)]
         if metabolite:
@@ -100,7 +99,22 @@ class FirstOrderReaction(Reaction):
     
 
 class FirstOrderModel(Model):
-    def add_reaction(self, reactant_label: str, metabolite_label: str|None=None, k: param|None=None, t_half: param=None):
+    def add_reaction(
+            self,
+            reactant_label: str,
+            metabolite_label: str|None=None,
+            k: param|None=None,
+            t_half: param=None,
+            ratio: float=1.0):
+        """Adds a reaction to the model.
+        reactant_label: Label for the reactant (drug which is converted into another)
+        metabolite_label: Label for metabolite (the resulting compound). Can be None to ignore/represent excretion.
+        k, t_half - elimination constant and half_life. One must be specified. Defines the speeed of the reaction,
+            as a function of the concentrations of compounds involved in the reaction.
+        ratio: The ratio by which to multiply the resulting compound concentration. Defaults to 1.0.
+            The purpose of this parameter is to take stoichiometry into account, so compounds aren't
+            necessarily converted in a 1:1 mass ratio."""
+
         if k is None:
             k = k_el(t_half)
             
@@ -109,7 +123,7 @@ class FirstOrderModel(Model):
         reactant = self.compounds[reactant_label]
         metabolite = self.compounds[metabolite_label] if metabolite_label is not None else None
         
-        reaction = FirstOrderReaction(k=k, reactant=reactant, metabolite=metabolite)
+        reaction = FirstOrderReaction(k=k, reactant=reactant, metabolite=metabolite, ratio=ratio)
         
         self.reactions.append(reaction)
         if metabolite:

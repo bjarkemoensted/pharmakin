@@ -4,11 +4,13 @@ Cho S, Yoon YR. Understanding the pharmacokinetics of prodrug and metabolite. Tr
 
 import numpy as np
 import sympy
+from sympy.core.function import AppliedUndef, Application, Derivative, UndefinedFunction
 from typing import Callable
 from unittest import TestCase
 
 from pharmakin.kinetics.first_order import k_el
 from pharmakin.modeling.base import FirstOrderModel, solution_type
+from pharmakin.modeling import example_models
 from pharmakin.modeling import symbols
 
 
@@ -16,70 +18,6 @@ AMP_T_HALF = 10.5
 AMP_LABEL = "AMP"
 LDX_T_HALF = 1.0
 LDX_LABEL = "LDX"
-
-
-def _lambdify_solutions(solutions: dict[str, sympy.Expr]) -> dict[str, Callable[[float], float]]:
-    res = {k: sympy.lambdify(symbols.t, v) for k, v in solutions.items()}
-    return res
-
-
-def single_drug_example(
-        t_half: float|int,
-        initial_amount: float=100.0,
-        label: str="drug") -> tuple[FirstOrderModel, dict[str, sympy.Expr]]:
-    """Sets up a model for a single drug being metabolized (with first=order kinetics).
-    Returns the model and the analyitical solution. For consistency with the prodrug model,
-    the solution is provided as a list of a single sympy expression, representing the
-    drug concentration as a function of time."""
-    
-    k = k_el(half_life=t_half)
-    
-    # Set up the model
-    model = FirstOrderModel().add_compound(
-        label, initial_amount=initial_amount
-    ).add_reaction(label, k=k)
-    
-    # Make the analyitical solution
-    solutions = {label: initial_amount*sympy.exp(-k*symbols.t)}
-    
-    return model, solutions
-
-
-def prodrug_example(
-        t_half_prodrug: float|int,
-        t_half_active: float|int,
-        A_0: float=100.0,
-        label_prodrug: str="prodrug",
-        label_active: str="active"
-    ) -> tuple[FirstOrderModel, dict[str, sympy.Expr]]:
-    """Makes model and solution for a prodrug system, with a prodrug metabolized into an active drug."""
-    
-    k1 = k_el(half_life=t_half_prodrug)
-    k2 = k_el(half_life=t_half_active)
-    
-    # Set up the model
-    model = FirstOrderModel().add_compound(
-        label_prodrug, initial_amount=A_0
-    ).add_compound(
-        label_active, initial_amount=0.0
-    ).add_reaction(
-        label_prodrug, label_active, k=k1
-    ).add_reaction(
-        label_active, k=k2
-    )
-    
-    # Construct analytic solutions for prodrug and active drug, respectively
-    solutions = dict()
-    solutions[label_prodrug] = A_0*sympy.exp(-k1*symbols.t)
-    if k1 != k2:
-        norm = (k1*A_0)/(k2 - k1)
-        solutions[label_active] = norm*(sympy.exp(-k1*symbols.t) - sympy.exp(-k2*symbols.t))
-    else:
-        # Special case when the rates are identical (think this can be obtained via L'Hopital from the general case)
-        solutions[label_active] = k1*A_0*symbols.t*sympy.exp(-k1*symbols.t)
-        
-    
-    return model, solutions
 
 
 class Base(TestCase):
@@ -107,16 +45,16 @@ class Base(TestCase):
     #
 
 class TestSingleDrugModel(Base):
+    """Case for a single compound, first order kinetics."""
+    
     @staticmethod
-    def make_model_and_solution():
-        # Example - metabolization of dextroamphetamine
-        model, solution = single_drug_example(label=AMP_LABEL, t_half=AMP_T_HALF, initial_amount=20.0)
-        return model, solution
+    def make_example() -> example_models.Example:
+        return example_models.dexamphetamine_example()
     
     def setUp(self):
-        model, solution = self.make_model_and_solution()
-        self.model = model
-        self.solution = _lambdify_solutions(solution)
+        self.example = self.make_example()
+        self.model = self.example.model
+        self.solution = self.example.solution
 
     def test_model_data_types(self):
         """Checks that the model uses expected data types. Adding this test because sympy types are a bit tricky
@@ -124,15 +62,15 @@ class TestSingleDrugModel(Base):
         UndefinedFunction etc."""
 
         for compound in self.model.compounds.values():
-            self.assertIsInstance(compound.A, sympy.core.function.UndefinedFunction)
-            self.assertIsInstance(compound.A_t, sympy.core.function.AppliedUndef)
+            self.assertIsInstance(compound.A, UndefinedFunction)
+            self.assertIsInstance(compound.A_t, AppliedUndef)
         
         for eq in self.model.get_equations():
-            self.assertIsInstance(eq.lhs, sympy.core.function.Derivative)
+            self.assertIsInstance(eq.lhs, Derivative)
             self.assertIsInstance(eq.rhs, sympy.Expr)
 
         for cond, val in self.model.get_initial_conditions().items():
-            self.assertIsInstance(cond, sympy.core.function.Application)
+            self.assertIsInstance(cond, Application)
             self.assertIsInstance(val, (int, float))
         #
     
@@ -161,12 +99,24 @@ class TestSingleDrugModel(Base):
 
 
 class TestProDrugModel(TestSingleDrugModel):
+    """Case for a prodrug model (first order kinetics)."""
     @staticmethod
-    def make_model_and_solution():
-        # Example - lisdexamphetamine prodrug
-        model, solution = prodrug_example(
-            label_prodrug=LDX_LABEL, label_active=AMP_LABEL,
-            t_half_active=AMP_T_HALF, t_half_prodrug=LDX_T_HALF,
-            A_0=60.0)
-        return model, solution
+    def make_example():
+        return example_models.lisdexamphetamine_example()
+    #
+
+
+class ProdrugWithSingleRate(TestProDrugModel):
+    """Case for a prodrug model (first order kinetics) in which the prodrug and active drug
+    have the same half life. The analyitical solution looks different in this special case,
+    so adding a separate test case to be sure it doesn't act weird."""
+    
+    @staticmethod
+    def make_example():
+        t_half = 2.0
+        res = example_models.Example.linear_prodrug(
+            t_half_prodrug=t_half,
+            t_half_active=t_half
+        )
+        return res
     #
