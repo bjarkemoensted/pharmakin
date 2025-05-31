@@ -86,15 +86,27 @@ solution_type: TypeAlias = sympy.Expr|Callable[[float], float]
 
 class FirstOrderReaction(Reaction):
     def __init__(self, k: param, reactant: Compound, metabolite: Compound|None=None, ratio: float=1.0):
-
+        """Reaction, first order kinetics
+        k: elimination constant (function of half-life)
+        reactant: Compound - the compound which is converted in the reaction.
+        metabolite: Compound (optional, defaults to None). The resulting metabolite.
+            Can be left as None to not include any metabolite in the reaction.
+            This can be done if the metabolite is not of interest in the model, for example
+            if the reaction represents a drug broken down into components without any
+            pharmacological effect.
+        ratio: float (default 1.0). The metabolite to reactant mass ratio.
+            This can be used for reactions where the reactant is not converted to the metabolite
+            in a 1:1 mass ratio.
+        """
+        
         self.k = k
         self.t_half = t_half_from_k(k)
         self.ratio = ratio
-        self.rate = self.ratio*self.k*reactant.A_t
+        self.rate = self.k*reactant.A_t
         
         rates = [(Derivative(reactant.A_t, symbols.t), -self.rate)]
         if metabolite:
-            rates.append((Derivative(metabolite.A_t, symbols.t), +self.rate))
+            rates.append((Derivative(metabolite.A_t, symbols.t), +self.rate*ratio))
         super().__init__(*rates)
     
 
@@ -131,14 +143,16 @@ class FirstOrderModel(Model):
         
         return self
     
-    def get_initial_conditions(self):
+    def get_initial_conditions(self) -> dict[sympy.core.function.AppliedUndef,int|float]:
+        """Get a dict containing the initial conditions for the system."""
         res = dict()
         for compound in self.compounds.values():
             res[compound.A(0)] = compound.A_0
         
         return res
     
-    def get_equations(self):
+    def get_equations(self) -> list[sympy.Eq]:
+        """Get a list of equations describing the temporal dynamics of the system."""
         d = _summarize_reactions(self.reactions)
         res = []
         for gradient, expr in d.items():
@@ -148,6 +162,7 @@ class FirstOrderModel(Model):
         return res
 
     def _make_solver(self, t_vals: np.ndarray) -> Solver:
+        """Sets up a solver for solving the system"""
         funcs = [c.A_t for c in self.compounds.values()]
         gradients = _summarize_reactions(self.reactions)
         ics = self.get_initial_conditions()
@@ -204,27 +219,4 @@ class FirstOrderModel(Model):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    hmm = t_half_from_k(2.0)
-    
-    
-    model = FirstOrderModel()
-    model.add_compound("LDX", initial_amount=100.0)
-    model.add_compound("AMP")
-    model.add_reaction(reactant_label="LDX", metabolite_label="AMP", t_half=1.0)
-    model.add_reaction(reactant_label="AMP", t_half=10.5)
-
-    c = model.compounds["AMP"]
-    
-    t = np.linspace(0.0, 1.0, num=1000)
-    a = model.solve(t, how="analytic")
-
-    
-    for k, v in a.items():
-        print(k)
-        print(v[:10])
-        print()
-        
-    num = model.solve(t, how="numeric")
-    
-    
+    pass

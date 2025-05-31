@@ -18,6 +18,7 @@ AMP_T_HALF = 10.5
 AMP_LABEL = "AMP"
 LDX_T_HALF = 1.0
 LDX_LABEL = "LDX"
+LDX_AMP_CONVERSION_MASS_RATIO = 0.297
 
 
 def _lambdify_solutions(solutions: dict[str, sympy.Expr]) -> dict[str, Callable[[float], float]]:
@@ -63,6 +64,7 @@ class Example:
         t_half_prodrug: float|int,
         t_half_active: float|int,
         initial_amount: float=100.0,
+        ratio: float=1.0,
         label_prodrug: str="prodrug",
         label_active: str="active"
     ) -> Example:
@@ -77,7 +79,7 @@ class Example:
         ).add_compound(
             label_active, initial_amount=0.0
         ).add_reaction(
-            label_prodrug, label_active, k=k1
+            label_prodrug, label_active, k=k1, ratio=ratio
         ).add_reaction(
             label_active, k=k2
         )
@@ -87,10 +89,10 @@ class Example:
         solution_symbolic[label_prodrug] = initial_amount*sympy.exp(-k1*symbols.t)
         if k1 != k2:
             norm = (k1*initial_amount)/(k2 - k1)
-            solution_symbolic[label_active] = norm*(sympy.exp(-k1*symbols.t) - sympy.exp(-k2*symbols.t))
+            solution_symbolic[label_active] = ratio*norm*(sympy.exp(-k1*symbols.t) - sympy.exp(-k2*symbols.t))
         else:
             # Special case when the rates are identical (think this can be obtained via L'Hopital from the general case)
-            solution_symbolic[label_active] = k1*initial_amount*symbols.t*sympy.exp(-k1*symbols.t)
+            solution_symbolic[label_active] = ratio*k1*initial_amount*symbols.t*sympy.exp(-k1*symbols.t)
             
         solution = _lambdify_solutions(solution_symbolic)
         res = cls(model=model, solution=solution)
@@ -111,6 +113,7 @@ def lisdexamphetamine_example(
         t_half_prodrug: float=LDX_T_HALF,
         t_half_active: float=AMP_T_HALF,
         initial_amount: float=60.0,
+        ratio: float=LDX_AMP_CONVERSION_MASS_RATIO,
         label_prodrug: str=LDX_LABEL,
         label_active: str=AMP_LABEL
     ) -> Example:
@@ -120,6 +123,7 @@ def lisdexamphetamine_example(
             t_half_active=t_half_active,
             t_half_prodrug=t_half_prodrug,
             initial_amount=initial_amount,
+            ratio=ratio,
             label_active=label_active,
             label_prodrug=label_prodrug
         )
