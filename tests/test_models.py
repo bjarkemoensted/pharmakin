@@ -5,19 +5,9 @@ Cho S, Yoon YR. Understanding the pharmacokinetics of prodrug and metabolite. Tr
 import numpy as np
 import sympy
 from sympy.core.function import AppliedUndef, Application, Derivative, UndefinedFunction
-from typing import Callable
 from unittest import TestCase
 
-from pharmakin.kinetics.first_order import k_el
-from pharmakin.modeling.base import FirstOrderModel, solution_type
 from pharmakin.modeling import example_models
-from pharmakin.modeling import symbols
-
-
-AMP_T_HALF = 10.5
-AMP_LABEL = "AMP"
-LDX_T_HALF = 1.0
-LDX_LABEL = "LDX"
 
 
 class Base(TestCase):

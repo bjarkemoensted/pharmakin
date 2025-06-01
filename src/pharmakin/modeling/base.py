@@ -1,38 +1,22 @@
 from __future__ import annotations
 import logging
+
+from pharmakin.modeling.compound import Compound
+from pharmakin.modeling.reactions import Reaction, summarize_reactions
 logger = logging.getLogger(__name__)
 import networkx as nx
 import numpy as np
 import sympy
 from sympy import Derivative
-from sympy.core.function import AppliedUndef, UndefinedFunction
-from typing import Any, Callable, cast, Iterable, Literal, TypeAlias
+from sympy.core.function import AppliedUndef
+from typing import cast, Literal, Type, TypeAlias
 
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
-from pharmakin.modeling.solvers import Solver
+from pharmakin.modeling import solvers
 
 
 solve_methods: TypeAlias = Literal["analytic", "numeric", "simple", "auto"]
-
-
-class Compound:
-    def __init__(self, label: str, A_0: float=0.0):
-        """Make a new quantity for modeling.
-        label (str) - A label/name to describe the compound.
-            This is just for readibality, so you can use the full medicine name (e.g. lisdexamphetamine),
-            Abreviation (LDX), brand name (Elvanse/Vyvanse) or whatever.
-        A_0 (float, default 0.0): The initial quantity of the drug."""
-        
-        self.label = label
-        self.A_0 = A_0
-        # List of decays, indicating the rates and resulting compounds to which the drug metabolizes
-        
-        A_suffix_str = f"{str(symbols.A)}_{self.label}"
-        self.A = sympy.Function(A_suffix_str)
-        self.A = cast(UndefinedFunction, self.A)
-        self.A_t = self.A(symbols.t)
-        self.Ap = sympy.Derivative(self.A(symbols.t), symbols.t)
 
 
 class Model:
@@ -58,30 +42,14 @@ class Model:
         for label in labels:
             if label is not None and label not in self.compounds:
                 self.add_compound(label)
-
-
-class Reaction:
-    def __init__(self, *rates: tuple[sympy.Derivative, sympy.Expr]):
-        logger.debug(f"Created reaction: {rates}.")
-        self.rates = rates
-    #
-
-def _summarize_reactions(reactions: Iterable[Reaction]) -> dict[sympy.Derivative, sympy.Expr]:
-    res: dict[sympy.Derivative, sympy.Expr] = dict()
-    for reaction in reactions:
-        for gradient, expr in reaction.rates:
-            try:
-                res[gradient] += expr
-            except KeyError:
-                res[gradient] = expr
             #
         #
     
-    return res
+    def solve(self, t_vals: np.ndarray, how: solve_methods="auto", **kwargs):
+        raise NotImplementedError
 
 
 param: TypeAlias = float|int|sympy.Basic
-solution_type: TypeAlias = sympy.Expr|Callable[[float], float]
 
 
 class FirstOrderReaction(Reaction):
@@ -153,7 +121,7 @@ class FirstOrderModel(Model):
     
     def get_equations(self) -> list[sympy.Eq]:
         """Get a list of equations describing the temporal dynamics of the system."""
-        d = _summarize_reactions(self.reactions)
+        d = summarize_reactions(*self.reactions)
         res = []
         for gradient, expr in d.items():
             eq = sympy.Eq(gradient, expr)
@@ -161,18 +129,22 @@ class FirstOrderModel(Model):
         
         return res
 
-    def _make_solver(self, t_vals: np.ndarray) -> Solver:
+    def _make_solver(self, how: solve_methods) -> solvers.Solver:
         """Sets up a solver for solving the system"""
-        funcs = [c.A_t for c in self.compounds.values()]
-        gradients = _summarize_reactions(self.reactions)
-        ics = self.get_initial_conditions()
-        solver = Solver(
-            funcs = funcs,
-            gradients = gradients,
-            ics = ics,
-            t_vals=t_vals
+        
+        d: dict[str, Type[solvers.Solver]] = dict(
+            analytic=solvers.AnalyticalSolver,
+            numeric=solvers.NumericSolver,
+            simple=solvers.SimpleSolver
         )
-        return solver
+        
+        if how not in d:
+            raise ValueError(f"Invalid solve method: '{how}'")
+        
+        class_ = d[how]
+        res = class_(compounds=self.compounds.values(), reactions=self.reactions)
+        
+        return res
     
     def solve(self, t_vals: np.ndarray, how: solve_methods="auto", **kwargs):
         """Solves the system for the specified time values.
@@ -196,21 +168,9 @@ class FirstOrderModel(Model):
                 #
             raise RuntimeError(f"All methods {priorities} failed to reach a solution.")
         
-        # Make a solver and select solve method corresponding to the 'how' parameter
-        solver = self._make_solver(t_vals=t_vals)
-        methods: dict[solve_methods, Callable] = dict(
-            analytic=solver.solve_analytic,
-            simple=solver.solve_simple,
-            numeric=solver.solve_numerical
-        )
-        
-        try:
-            solve_func = methods[how]
-        except KeyError:
-            raise ValueError(f"Invalid solve method: '{how}'")
-    
         # Solve the system
-        solutions = solve_func(**kwargs)
+        solver = self._make_solver(how=how)
+        solutions = solver.solve(t=t_vals)
         
         # Use compound labels as key, instead of the symbol for concentration(time) (A(t)).
         res = {self._A_t_to_compound[k].label: v for k, v in solutions.items()}

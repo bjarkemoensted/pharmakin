@@ -1,4 +1,5 @@
 from __future__ import annotations
+from abc import ABC, abstractmethod
 import logging
 logger = logging.getLogger(__name__)
 import numpy as np
@@ -8,31 +9,35 @@ import sympy
 from typing import Iterable, TypeAlias
 
 from pharmakin.modeling import symbols
+from pharmakin.modeling.compound import Compound, get_initial_conditions
+from pharmakin.modeling.reactions import Reaction, summarize_reactions
 
 
 result_type: TypeAlias = dict[sympy.core.function.AppliedUndef, np.ndarray]
 
 
-class Solver:
-    def __init__(
-            self,
-            funcs: Iterable[sympy.core.function.AppliedUndef],
-            gradients: dict[sympy.core.function.Derivative, sympy.Expr],
-            ics: dict[sympy.core.function.Application, float|int],
-            t_vals: np.ndarray):
-        
-        assert t_vals[0] == 0.0
-        
+class Solver(ABC):
+    def __init__(self, compounds: Iterable[Compound], reactions: Iterable[Reaction]):
         # Convert functions to a list to ensure consistent ordering
-        self.funcs = list(funcs)
+        self.compounds = list(compounds)
+        self.reactions = reactions
         
-        self.gradients = gradients
+        self.funcs = [c.A_t for c in self.compounds]
+        self.ics = get_initial_conditions(*self.compounds)
+        
         # Symbols and expressions for time derivatives
+        self.gradients = summarize_reactions(*self.reactions)
         self.dadt = [sympy.Derivative(a, symbols.t) for a in self.funcs]
-        self.slopes = [gradients[Ap] for Ap in self.dadt]
+        self.slopes = [self.gradients[Ap] for Ap in self.dadt]
+    #
     
-        self.ics = ics
-        self.t_vals = t_vals
+    @abstractmethod
+    def solve(self, t: np.ndarray) -> result_type:
+        raise NotImplementedError
+    #
+
+
+class AnalyticalSolver(Solver):
         
     @property
     def eqs(self) -> list[sympy.Eq]:
@@ -46,7 +51,7 @@ class Solver:
         res = {s.lhs: s.rhs for s in solutions}
         return res
     
-    def solve_analytic(self) -> result_type:
+    def solve(self, t: np.ndarray) -> result_type:
         """Solves the problem analytically.
         The exact solutions are then converted into numeric functions and evaluated, to
         obtain a result consistent with numerical methods."""
@@ -55,12 +60,15 @@ class Solver:
         solutions = self._get_analytic_symbolic_solutions()
         for variable, expr in solutions.items():
             f = sympy.lambdify(symbols.t, expr)
-            vals = f(self.t_vals)
+            vals = f(t)
             res[variable] = vals
         
         return res
+    #
 
-    def solve_simple(self, max_relative_step_size: float=0.01) -> result_type:
+
+class SimpleSolver(Solver):
+    def solve(self, t, max_relative_step_size: float=0.01):
         """Solves numerically a system of differential equations.
         This takes a simple approach and computes at each time step:
             * The current rate of change given the current values.
@@ -88,13 +96,13 @@ class Solver:
 
         # Make a matrix for holding the results, and set the first row to initial values
         x = np.array([self.ics[A_t.subs(symbols.t, 0)] for A_t in self.funcs])
-        m = np.empty(shape=(len(self.t_vals), len(self.funcs)))
+        m = np.empty(shape=(len(t), len(self.funcs)))
         m.fill(np.nan)
         ind = 0
         m[ind, :] = x
 
         # Fill up the matrix using the gradients to interpolate from previous points
-        for dt in np.diff(self.t_vals):
+        for dt in np.diff(t):
             ind += 1
             v = np.array(fp(*x))
             a = np.array(fpp(*v))
@@ -113,8 +121,11 @@ class Solver:
         d = {A_t: col for A_t, col in zip(self.funcs, m.T, strict=True)}
 
         return d
-    
-    def solve_numerical(self, method="DOP853", rtol=0.00001, **kwargs) -> result_type:
+    #
+
+
+class NumericSolver(Solver):
+    def solve(self, t, method="DOP853", rtol=0.00001, **kwargs):
         """Uses numerical integration for solving the system."""
         
         time_derivatives = sympy.lambdify((symbols.t, self.funcs), self.slopes, modules="numpy")
@@ -123,10 +134,10 @@ class Solver:
             return time_derivatives(t, z)
         
         z0 = [self.ics[A_t.subs(symbols.t, 0)] for A_t in self.funcs]
-        t_span = (min(self.t_vals), max(self.t_vals))
+        t_span = (min(t), max(t))
 
         kw = dict(method=method, rtol=rtol, **kwargs)
-        sol = solve_ivp(system, t_span, z0, t_eval=self.t_vals, **kw)
+        sol = solve_ivp(system, t_span, z0, t_eval=t, **kw)
         
         res = dict(zip(self.funcs, sol.y, strict=True))
         return res
