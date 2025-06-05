@@ -13,7 +13,7 @@ from pharmakin.modeling.compound import Compound, get_initial_conditions
 from pharmakin.modeling.reactions import Reaction, summarize_reactions
 
 
-result_type: TypeAlias = dict[sympy.core.function.AppliedUndef, np.ndarray]
+result_type: TypeAlias = dict[sympy.core.function.AppliedUndef, np.ndarray[float]]
 
 
 class Solver(ABC):
@@ -28,7 +28,7 @@ class Solver(ABC):
         # Symbols and expressions for time derivatives
         self.gradients = summarize_reactions(*self.reactions)
         self.dadt = [sympy.Derivative(a, symbols.t) for a in self.funcs]
-        self.slopes = [self.gradients[Ap] for Ap in self.dadt]
+        self.slopes = [self.gradients.get(Ap, 0.0) for Ap in self.dadt]
     #
     
     @abstractmethod
@@ -41,7 +41,7 @@ class AnalyticalSolver(Solver):
         
     @property
     def eqs(self) -> list[sympy.Eq]:
-        res = [sympy.Eq(k, v) for k, v in self.gradients.items()]
+        res = [sympy.Eq(Ap, slope) for Ap, slope in zip(self.dadt, self.slopes, strict=True)]
         return res
 
     def _get_analytic_symbolic_solutions(self) -> dict[sympy.core.function.AppliedUndef, sympy.Expr]:
@@ -61,6 +61,11 @@ class AnalyticalSolver(Solver):
         for variable, expr in solutions.items():
             f = sympy.lambdify(symbols.t, expr)
             vals = f(t)
+            
+            # sympy lambdified functions return scalars for contant functions, so convert those to arrays
+            if not isinstance(vals, np.ndarray):
+                vals = np.array([float(vals) for _ in range(len(t))])
+            
             res[variable] = vals
         
         return res
@@ -107,13 +112,17 @@ class SimpleSolver(Solver):
             v = np.array(fp(*x))
             a = np.array(fpp(*v))
             step = dt*v +0.5*a*dt**2
-
+            
+            # Throw a warning if the rate of change in concentration is relatively large (compared with current value)
             total_change = np.sum(np.abs(step))
             total_conc = np.sum(np.abs(x))
-            toofast = total_change >= total_conc*max_relative_step_size
+            # Add a tiny threshold to avoid warnings when concentrations are ~zero
+            threshold = 10e-8
+            toofast = total_change >= total_conc*max_relative_step_size + threshold
             if toofast and not warned:
                 logger.warning(f"Step size exceeded threshold {max_relative_step_size}. Try greater temporal resolution.")
                 warned = True
+            
             x += step
             m[ind, :] = x
 

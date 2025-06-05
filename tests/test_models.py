@@ -5,18 +5,36 @@ Cho S, Yoon YR. Understanding the pharmacokinetics of prodrug and metabolite. Tr
 import numpy as np
 import sympy
 from sympy.core.function import AppliedUndef, Application, Derivative, UndefinedFunction
+from typing import Iterable, Iterator
 from unittest import TestCase
 
 from pharmakin.modeling import example_models
+from pharmakin.modeling.base import FirstOrderModel, valid_solve_methods, _solvers, solve_methods
+from pharmakin.modeling.solvers import result_type, Solver
+
+
+def test_all_solvers_have_a_keyword():
+    """Check that all solvers are associated with a keyword (the 'how' parameter) so models can access them
+    for solving ODEs."""
+    
+    assert set(valid_solve_methods) == set(_solvers.keys())
+    assert all(issubclass(cls_, Solver) for cls_ in _solvers.values())
 
 
 class Base(TestCase):
-    @staticmethod
-    def get_tvals() -> np.ndarray:
-        res = np.linspace(0.0, 100.0, num=100_000)
+    # Which solvers to check results for. Default to all.
+    check_solvers: Iterable[solve_methods] = valid_solve_methods
+    
+    t_low = 0.0
+    t_high = 100.0
+    t_n_values = 100_000
+    
+    @classmethod
+    def get_tvals(cls) -> np.ndarray:
+        res = np.linspace(cls.t_low, cls.t_high, num=cls.t_n_values)
         return res
 
-    def _compare_numeric(self, *solutions: dict[str, np.ndarray], decimal: int|None=None, **kwargs):
+    def _compare_numeric(self, *solutions: result_type, decimal: int|None=None, **kwargs):
         """Checks if the 2 provided sympy expressions are (approximately) the same.
         Converts both into functions and checks that a number of values for t result in very close results."""
         
@@ -32,7 +50,35 @@ class Base(TestCase):
                 np.testing.assert_almost_equal(arr1, arr2, **kwargs)
             #
         #
+    
+    def iterate_solutions(self) -> Iterator[tuple[solve_methods, result_type]]:
+        for method in self.check_solvers:
+            t = self.get_tvals()
+            solution = self.model.solve(t_vals=t, how=method)
+            yield method, solution
+        #
     #
+
+
+class TestConstantModel(Base):
+    """Case for a a single drug with zero amount and no reactions, just to make sure solvers behave
+    reasonably when nothing is supposed to happen."""
+    
+    t_n_values = 100
+    
+    def setUp(self):
+        self.model = FirstOrderModel()
+        label = "some_drug"
+        initial_amount = 0.0
+        self.model.add_compound(label=label, initial_amount=initial_amount)
+        self.correct = {label: np.array([initial_amount for _ in range(self.t_n_values)])}
+        super().setUp()
+    
+    def test_vals(self):
+        for _, solution in self.iterate_solutions():
+            self._compare_numeric(solution, self.correct)
+        #
+
 
 class TestSingleDrugModel(Base):
     """Case for a single compound, first order kinetics."""
@@ -45,6 +91,8 @@ class TestSingleDrugModel(Base):
         self.example = self.make_example()
         self.model = self.example.model
         self.solution = self.example.solution
+        t = self.get_tvals()
+        self.correct_solution = {k: f(t) for k, f in self.solution.items()}
 
     def test_model_data_types(self):
         """Checks that the model uses expected data types. Adding this test because sympy types are a bit tricky
@@ -64,28 +112,21 @@ class TestSingleDrugModel(Base):
             self.assertIsInstance(val, (int, float))
         #
     
+    def check_solver(self, how=solve_methods, decimal: int|None=None, **kwargs):
+        t = self.get_tvals()
+        solution = self.model.solve(t_vals=t, how=how)
+        self._compare_numeric(solution, self.correct_solution, decimal=decimal, **kwargs)
+    
     def test_analytic_solve(self):
         """Solves the single-drug model analytically, and compares with the expected result"""
         
-        t = self.get_tvals()
-        correct = {k: f(t) for k, f in self.solution.items()}
-        model_solutions = self.model.solve(t_vals=t, how="analytic")
-        self._compare_numeric(model_solutions, correct)
+        self.check_solver("analytic")
     
     def test_simple_numeric_solve(self):
-        t = self.get_tvals()
-        correct = {label: f(t) for label, f in self.solution.items()}
+        self.check_solver("simple", decimal=3)
         
-        model_solutions = self.model.solve(t_vals=t, how="simple")
-        self._compare_numeric(model_solutions, correct, decimal=3)
-    
     def test_numeric_solve(self):
-        t = self.get_tvals()
-        correct = {label: f(t) for label, f in self.solution.items()}
-        
-        model_solutions = self.model.solve(t_vals=t, how="numeric")
-        self._compare_numeric(model_solutions, correct, decimal=3)
-    #
+        self.check_solver("numeric", decimal=3)
 
 
 class TestProDrugModel(TestSingleDrugModel):
@@ -110,3 +151,9 @@ class ProdrugWithSingleRate(TestProDrugModel):
         )
         return res
     #
+
+
+if __name__ == '__main__':
+    t = TestConstantModel()
+    t.setUp()
+    t.test_vals()

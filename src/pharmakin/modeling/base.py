@@ -9,14 +9,25 @@ import numpy as np
 import sympy
 from sympy import Derivative
 from sympy.core.function import AppliedUndef
-from typing import cast, Literal, Type, TypeAlias
+from typing import cast, get_args, Literal, Type, TypeAlias
 
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
 from pharmakin.modeling import solvers
 
 
-solve_methods: TypeAlias = Literal["analytic", "numeric", "simple", "auto"]
+# Valid arguments for the 'how' keyword, indicating how to solve ODEs
+solve_methods: TypeAlias = Literal["analytic", "numeric", "simple"]
+# Solve methods plus an "auto" options
+valid_solve_args: TypeAlias = solve_methods|Literal["auto"]
+
+# Get valid solvers and map their names to the solver classes
+valid_solve_methods: tuple[solve_methods, ...] = get_args(solve_methods)
+_solvers: dict[str, Type[solvers.Solver]] = {
+    "analytic": solvers.AnalyticalSolver,
+    "numeric": solvers.NumericSolver,
+    "simple": solvers.SimpleSolver
+}
 
 
 class Model:
@@ -45,7 +56,7 @@ class Model:
             #
         #
     
-    def solve(self, t_vals: np.ndarray, how: solve_methods="auto", **kwargs):
+    def solve(self, t_vals: np.ndarray, how: valid_solve_args="auto", **kwargs):
         raise NotImplementedError
 
 
@@ -132,21 +143,15 @@ class FirstOrderModel(Model):
     def _make_solver(self, how: solve_methods) -> solvers.Solver:
         """Sets up a solver for solving the system"""
         
-        d: dict[str, Type[solvers.Solver]] = dict(
-            analytic=solvers.AnalyticalSolver,
-            numeric=solvers.NumericSolver,
-            simple=solvers.SimpleSolver
-        )
-        
-        if how not in d:
+        if how not in _solvers:
             raise ValueError(f"Invalid solve method: '{how}'")
         
-        class_ = d[how]
+        class_ = _solvers[how]
         res = class_(compounds=self.compounds.values(), reactions=self.reactions)
         
         return res
     
-    def solve(self, t_vals: np.ndarray, how: solve_methods="auto", **kwargs):
+    def solve(self, t_vals: np.ndarray, how: valid_solve_args="auto", **kwargs):
         """Solves the system for the specified time values.
         t_vals: numpy array representing time values.
         how: The method to be used when solving. Can be:
@@ -159,7 +164,7 @@ class FirstOrderModel(Model):
         
         # Attempt multiple solve methods if auto is selected
         if how == "auto":
-            priorities = ("analytic", "numeric", "simple")
+            priorities = valid_solve_methods
             for method in priorities:
                 try:
                     return self.solve(t_vals=t_vals, how=cast(solve_methods, method), **kwargs)
