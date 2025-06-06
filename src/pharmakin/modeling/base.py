@@ -14,6 +14,7 @@ from typing import cast, get_args, Literal, Type, TypeAlias
 from pharmakin.modeling.reactions import administration_type
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
+from pharmakin.modeling.symbols import SymbolRegistry
 from pharmakin.modeling import solvers
 
 
@@ -34,7 +35,9 @@ _solvers: dict[str, Type[solvers.Solver]] = {
 class Model:
     def __init__(self) -> None:
         self.G: nx.DiGraph = nx.DiGraph()
-        
+
+        # TODO use symbol registry instead of compounds to lookup A_t, Ap, etc  # !!!
+        self.symbols = SymbolRegistry()
         self.compounds: dict[str, Compound] = dict()
         # Map concentration(time) to compound objects
         self._A_t_to_compound: dict[AppliedUndef, Compound] = dict()
@@ -54,7 +57,12 @@ class Model:
         if label in self.compounds:
             raise RuntimeError(f"Compound {label} has already been added to model.")
         
-        compound = Compound(label=label, A_0=initial_amount)
+        compound = Compound.create_with_symbol_registry(
+            label=label,
+            A_0=initial_amount,
+            symbol_registry=self.symbols
+            )
+        
         self.G.add_node(label)
         self.compounds[label] = compound
         self._A_t_to_compound[compound.A_t] = compound
@@ -134,7 +142,7 @@ class FirstOrderModel(Model):
         return self
     
     def add_administration(self, label: str, kind: administration_type, amount: float, **kwargs):
-        gradient = self._lookup_Ap(label)
+        gradient = self.symbols.Ap[label]
         d = dict(gradient=gradient, amount=amount, **kwargs)
         match kind:
             case "instantaneous":

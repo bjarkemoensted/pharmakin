@@ -8,6 +8,23 @@ from pharmakin.modeling.compound import Compound
 from pharmakin.modeling import symbols
 
 
+class Rate:
+    # TODO FIX!!!!!
+    # Think the clean solution here is to define different types of rates, and include class-level sttributes
+    # indicating how they may be aggregated by solvers.
+    # For instance, an instantaneous release (Dirac Delta) can be handled by analytical solvers, but not standard
+    # numerical ones (at least not mine).
+    # Migh make sense to have e.g. a 'can_be_lambdified' flag, so numerical solvers can treat non-lambdifiable
+    # rates separately. Those rates can then maybe expose methods for how A(t) changes when integrating across
+    # a time region (Dirac Deltas bumping the amount iff we integrate across t0, for instance).
+    
+    def __init__(self, gradient: sympy.Derivative, expr: sympy.Expr, t_start:float=0.0, t_stop: float=float('inf')):
+        self.gradient = gradient
+        self.expr = expr
+        self.t_start = t_start
+        self.t_stop = t_stop
+
+
 class Reaction:
     def __init__(self, *rates: tuple[sympy.Derivative, sympy.Expr], t_start:float=0.0, t_stop: float=float('inf')) -> None:
         logger.debug(f"Created reaction: {rates}.")

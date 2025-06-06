@@ -1,5 +1,5 @@
 import sympy
-from sympy.core.function import AppliedUndef, Application, Derivative, UndefinedFunction
+from sympy.core.function import AppliedUndef, Derivative, UndefinedFunction
 from typing import Callable, Generic, Iterator, TypeVar
 
 # Time variable
@@ -67,7 +67,7 @@ class SymbolMaker(Generic[S]):
     #
 
 
-class Sym:
+class SymbolRegistry:
     """Registry for sympy objects which are useful for PK models.
     This holds a number of symbol makers which map a label (corresponding to some compound),
     to various symbols for concentration, rate of change, etc.
