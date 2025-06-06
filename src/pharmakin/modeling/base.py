@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 
 from pharmakin.modeling.compound import Compound
-from pharmakin.modeling.reactions import Reaction, summarize_reactions
+from pharmakin.modeling.reactions import Reaction, summarize_reactions, Administration
 logger = logging.getLogger(__name__)
 import networkx as nx
 import numpy as np
@@ -11,6 +11,7 @@ from sympy import Derivative
 from sympy.core.function import AppliedUndef
 from typing import cast, get_args, Literal, Type, TypeAlias
 
+from pharmakin.modeling.reactions import administration_type
 from pharmakin.kinetics.first_order import k_el, t_half_from_k
 from pharmakin.modeling import symbols
 from pharmakin.modeling import solvers
@@ -38,6 +39,16 @@ class Model:
         # Map concentration(time) to compound objects
         self._A_t_to_compound: dict[AppliedUndef, Compound] = dict()
         self.reactions: list[Reaction] = []
+
+    def _lookup_A_t(self, label: str) -> AppliedUndef:
+        c = self.compounds[label]
+        res = c.A_t
+        return res
+    
+    def _lookup_Ap(self, label: str) -> Derivative:
+        c = self.compounds[label]
+        res = c.Ap
+        return res
 
     def add_compound(self, label: str, initial_amount = 0.0):
         if label in self.compounds:
@@ -121,6 +132,18 @@ class FirstOrderModel(Model):
             self.G.add_edge(reactant_label, metabolite_label, reaction=reaction)
         
         return self
+    
+    def add_administration(self, label: str, kind: administration_type, amount: float, **kwargs):
+        gradient = self._lookup_Ap(label)
+        d = dict(gradient=gradient, amount=amount, **kwargs)
+        match kind:
+            case "instantaneous":
+                adm = Administration.instantaneous(**d)
+            case _:
+                raise ValueError(f"Unrecognized drug administration: {kind}")
+            #
+        
+        self.reactions.append(adm)
     
     def get_initial_conditions(self) -> dict[sympy.core.function.AppliedUndef,int|float]:
         """Get a dict containing the initial conditions for the system."""

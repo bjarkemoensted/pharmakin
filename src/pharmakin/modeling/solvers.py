@@ -13,7 +13,7 @@ from pharmakin.modeling.compound import Compound, get_initial_conditions
 from pharmakin.modeling.reactions import Reaction, summarize_reactions
 
 
-result_type: TypeAlias = dict[sympy.core.function.AppliedUndef, np.ndarray[float]]
+result_type: TypeAlias = dict[sympy.core.function.AppliedUndef, np.typing.NDArray[np.float64]]
 
 
 class Solver(ABC):

@@ -5,7 +5,7 @@ Cho S, Yoon YR. Understanding the pharmacokinetics of prodrug and metabolite. Tr
 import numpy as np
 import sympy
 from sympy.core.function import AppliedUndef, Application, Derivative, UndefinedFunction
-from typing import Iterable, Iterator
+from typing import Iterable
 from unittest import TestCase
 
 from pharmakin.modeling import example_models
@@ -50,15 +50,6 @@ class Base(TestCase):
                 np.testing.assert_almost_equal(arr1, arr2, **kwargs)
             #
         #
-    
-    def iterate_solutions(self) -> Iterator[tuple[solve_methods, result_type]]:
-        for method in self.check_solvers:
-            t = self.get_tvals()
-            solution = self.model.solve(t_vals=t, how=method)
-            yield method, solution
-        #
-    #
-
 
 class TestConstantModel(Base):
     """Case for a a single drug with zero amount and no reactions, just to make sure solvers behave
@@ -75,7 +66,9 @@ class TestConstantModel(Base):
         super().setUp()
     
     def test_vals(self):
-        for _, solution in self.iterate_solutions():
+        for method in self.check_solvers:
+            t = self.get_tvals()
+            solution = self.model.solve(t_vals=t, how=method)
             self._compare_numeric(solution, self.correct)
         #
 
